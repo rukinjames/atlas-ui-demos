@@ -1,0 +1,3316 @@
+<!--
+================================================================================
+ATLAS — VELVET OBSERVATORY
+A full-UI exploration for the Atlas voice assistant. 1280 x 800 landscape.
+Self-contained: no external requests, no fonts fetched, no images loaded.
+Design language: celestial luxe minimalism. Black velvet ground, one ice-blue
+voice, high-contrast serif heroes, celestial mechanics as the organizing logic.
+
+--------------------------------------------------------------------------------
+SCREEN MANIFEST — 31 screens, every one reachable
+--------------------------------------------------------------------------------
+The persistent navigator is THE ORRERY: the ringed glyph at top-left (48px hit,
+always on screen, also bound to the "N" key). It opens a star chart where all 31
+screens are moons on four orbits, grouped by family. Tap a moon to travel there.
+Arrow keys / [ and ] step through screens in order. Esc closes the orrery.
+
+Deep links, for review: append #14 (or any number 1-31) to jump straight to a
+screen, or #index to open the orrery. Everything else is reachable by touch.
+
+STATES
+  1  Boot .................. Orrery > Boot. Auto-advances to Idle after 3.2s.
+  2  Idle (clock hero) ..... Orrery > Idle. Also the end of the voice flow, and
+                             where Boot lands. Tap anywhere on it to wake.
+  3  Dimmed / asleep ....... Orrery > Dimmed. Or Idle > "Let it sleep".
+                             Tap the dimmed screen to wake it.
+  4  Wake moment ........... Orrery > Wake. Or tap Idle / tap Dimmed. Or press
+                             "Run the voice flow" on Idle or in the orrery.
+  5  Listening ............. Follows Wake in the flow. Orrery > Listening.
+                             Live waveform (canvas) + live transcript typing in.
+  6  Thinking .............. Follows Listening. Orrery > Thinking.
+                             Gravitational spiral + staged reasoning log.
+  7  Speaking .............. Follows Thinking. Orrery > Speaking. Streaming
+                             caption; provenance badge selector cycles all five
+                             badge kinds (SOURCED / RECALLED / GENERAL KNOWLEDGE
+                             / NO SOURCE FOUND / TOOL ERROR).
+KNOWLEDGE
+  8  Quick answer .......... Orrery > Answer. Or Speaking > "Show the sources".
+                             Sources orbit the answer; tap a moon to light its
+                             excerpt.
+  9  Deep research ......... Orrery > Research. Or Answer > "Research this
+                             properly". Live progress, sources arriving.
+  10 Research results ...... Orrery > Results. Or Research > "Open results".
+                             Working tabs across sources + article cards.
+  11 Article reader ........ Tap any article card on Results. Orrery > Article.
+  12 Follow-up thread ...... Orrery > Follow-up. Or Results / Article >
+                             "Ask a follow-up". Live input appends to thread;
+                             action row: save to folder / make a document /
+                             email it to me.
+WEATHER
+  13 Weather ............... Orrery > Weather. Or the weather satellite on Idle.
+TIME
+  14 Timers ................ Orrery > Timers. Or the chrome timer readout.
+                             Three concurrent labelled timers, really ticking.
+  15 Alarms ................ Orrery > Alarms. Working toggles + recurrence.
+  16 Alarm editor .......... Tap any alarm row on Alarms, or "Add an alarm".
+                             Orrery > Alarm editor. Audible synth previews.
+CALENDAR
+  17 Agenda ................ Orrery > Agenda. Or the "next" satellite on Idle.
+  18 Event editor .......... Tap any event on Agenda, or "Add an event".
+                             Orrery > Event.
+  19 Confirmation .......... Event editor > "Save changes". Orrery > Confirm.
+PEOPLE & MAIL
+  20 Contact disambiguation  Orrery > Contacts.
+  21 Message compose ....... Contacts > "Text this Carlos". Orrery > Message.
+  22 Inbox ................. Orrery > Inbox.
+  23 Email open ............ Tap any inbox row. Orrery > Email.
+  24 Email send confirm .... Email > "Reply with the photo". Orrery > Send mail.
+                             Photo attachment named in the read-back.
+VISION
+  25 Camera viewfinder ..... Orrery > Camera. Live noise/scan, recording
+                             indicator, capture flash.
+  26 Gallery + detail ...... Orrery > Gallery. Or Camera > "Open the gallery".
+                             Tap a plate for detail. Keep / Forget (two-phase).
+MIND
+  27 Memory ................ Orrery > Memory. Ages as orbital distance.
+                             Forget is two-phase.
+  28 Jobs / delegation ..... Orrery > Jobs. Running + queued + finished +
+                             "While you were away".
+SYSTEM
+  29 Muted ................. Orrery > Muted. Or the mic button in the chrome.
+  30 Offline / error ....... Orrery > Offline. "Try again" really retries.
+  31 Health ................ Orrery > Health. Capabilities row, live services.
+--------------------------------------------------------------------------------
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Atlas — Velvet Observatory</title>
+<style>
+/* ============================================================================
+   TOKENS
+   Colour: the void, ice in three intensities, warm starlight, one deep slate.
+   Nothing else. The restraint is the luxury.
+   ========================================================================== */
+:root{
+  --void:#000000;
+
+  --ice-flare:#EAF8FF;   /* peaks, the live edge, the confirmed thing */
+  --ice:#BFE3F2;         /* the voice: the accent proper, matches the LED strip */
+  --ice-whisper:#6E9AAC; /* secondary ice, meta, quiet labels */
+  --ice-dust:#2A4653;    /* ice at rest */
+
+  --star:#F3EDE4;        /* warm starlight white — display type */
+  --star-2:rgba(243,237,228,.72);
+  --star-3:rgba(243,237,228,.46);
+  --star-4:rgba(243,237,228,.26);
+
+  --slate:#161A1D;       /* the one deep slate: structure */
+
+  --hair:rgba(191,227,242,.15);
+  --hair-dim:rgba(191,227,242,.075);
+  --hair-ice:rgba(191,227,242,.40);
+  --plate:rgba(191,227,242,.028);
+  --plate-2:rgba(191,227,242,.05);
+
+  --serif:'Didot','Bodoni 72','Bodoni MT','Playfair Display','Newsreader','Hoefler Text','Big Caslon','Libre Baskerville',Garamond,'Times New Roman',Times,serif;
+  --sans:'Avenir Next','Avenir','Optima','Gill Sans MT','Gill Sans','Segoe UI',Inter,'Helvetica Neue',system-ui,sans-serif;
+  --mono:'IBM Plex Mono','SF Mono','Cascadia Mono','JetBrains Mono','DejaVu Sans Mono',ui-monospace,Menlo,Consolas,monospace;
+
+  --ease:cubic-bezier(.16,.72,.26,1);      /* arrival: fast in, long settle */
+  --ease-mass:cubic-bezier(.42,.02,.18,1); /* bodies with mass */
+}
+
+/* ============================================================================
+   GROUND
+   ========================================================================== */
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;overflow:hidden;background:var(--void)}
+body{
+  font-family:var(--sans);color:var(--star);
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+}
+button{font:inherit;color:inherit;background:none;border:0;margin:0;cursor:pointer}
+input,textarea{font:inherit;color:inherit;background:none;border:0;outline:0}
+:focus{outline:none}
+:focus-visible{outline:1px solid var(--ice);outline-offset:3px}
+::selection{background:rgba(191,227,242,.22)}
+
+#shell{position:fixed;inset:0;background:var(--void);display:block}
+#stage{
+  position:absolute;left:50%;top:50%;width:1280px;height:800px;
+  transform:translate(-50%,-50%);transform-origin:50% 50%;
+  background:var(--void);overflow:hidden;
+}
+
+/* ---- starfield: three parallax layers, each drawn once ------------------- */
+.starlayer{position:absolute;inset:-40px;pointer-events:none;transition:transform 900ms var(--ease-mass)}
+.starlayer canvas{position:absolute;inset:0;width:100%;height:100%;animation:drift 140s linear infinite alternate}
+.starlayer:nth-child(2) canvas{animation-duration:200s}
+.starlayer:nth-child(3) canvas{animation-duration:260s}
+@keyframes drift{from{transform:translate3d(0,0,0)}to{transform:translate3d(-26px,14px,0)}}
+
+/* ============================================================================
+   CHROME — the meridian bar
+   ========================================================================== */
+#chrome{
+  position:absolute;left:0;right:0;top:0;height:64px;z-index:40;
+  display:flex;align-items:center;gap:18px;padding:0 22px 0 14px;
+  transition:opacity 700ms var(--ease);
+}
+/* on the sleeping screens the chrome recedes, but the way out never disappears */
+.wordmark,.chrome-meta,#micBtn{transition:opacity 700ms var(--ease)}
+#chrome.veiled .wordmark,#chrome.veiled .chrome-meta,#chrome.veiled #micBtn{opacity:.12;pointer-events:none}
+#chrome.veiled #navBtn{opacity:.42}
+
+#navBtn{
+  width:48px;height:48px;display:grid;place-items:center;flex:none;
+  transition:transform 600ms var(--ease-mass),opacity 500ms var(--ease);opacity:.78;
+}
+#navBtn:hover,#navBtn:focus-visible{opacity:1;transform:rotate(28deg)}
+#navBtn svg{overflow:visible}
+#navBtn .n-orb{fill:var(--ice)}
+#navBtn .n-ring{fill:none;stroke:var(--ice-whisper);stroke-width:1}
+
+.wordmark{
+  font-family:var(--serif);font-size:15px;letter-spacing:.52em;text-indent:.52em;
+  color:var(--star-2);text-transform:uppercase;line-height:1;padding-top:2px;
+}
+.chrome-spacer{flex:1}
+.chrome-meta{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.28em;text-transform:uppercase;
+  color:var(--ice-whisper);white-space:nowrap;font-variant-numeric:tabular-nums;
+}
+.chrome-meta b{color:var(--star-3);font-weight:400}
+#chromeTimers{color:var(--ice);display:none}
+#chromeTimers.on{display:inline}
+#micBtn{
+  width:48px;height:48px;display:grid;place-items:center;flex:none;opacity:.7;
+  transition:opacity 400ms var(--ease);
+}
+#micBtn:hover{opacity:1}
+#micBtn.muted{opacity:1}
+#micBtn .m-body{stroke:var(--ice-whisper);fill:none;stroke-width:1.1}
+#micBtn.muted .m-body{stroke:var(--star-3)}
+#micBtn .m-slash{stroke:var(--star);stroke-width:1.1;opacity:0;transition:opacity 300ms}
+#micBtn.muted .m-slash{opacity:1}
+
+/* ============================================================================
+   SCREENS
+   ========================================================================== */
+#screens{position:absolute;inset:0;z-index:20}
+.screen{
+  position:absolute;inset:0;opacity:0;pointer-events:none;
+  transform:translate3d(0,16px,0);
+  transition:opacity 460ms var(--ease),transform 640ms var(--ease-mass);
+}
+.screen.active{opacity:1;transform:none;pointer-events:auto;z-index:2}
+.screen.leaving{opacity:0;transform:translate3d(0,-12px,0);z-index:1}
+
+.field{
+  position:absolute;inset:0;padding:92px 68px 56px;
+  display:flex;flex-direction:column;
+}
+.field.tight{padding-top:82px}
+.field.bleed{padding:0}
+
+/* ---- typography utilities ----------------------------------------------- */
+.eyebrow{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.34em;text-transform:uppercase;
+  color:var(--ice-whisper);line-height:1;
+}
+.eyebrow.ice{color:var(--ice)}
+.eyebrow.faint{color:var(--star-4)}
+.d1{font-family:var(--serif);font-size:104px;line-height:.94;letter-spacing:-.018em;color:var(--star);font-weight:400}
+.d2{font-family:var(--serif);font-size:64px;line-height:1.02;letter-spacing:-.012em;color:var(--star);font-weight:400}
+.d3{font-family:var(--serif);font-size:42px;line-height:1.16;letter-spacing:-.006em;color:var(--star);font-weight:400}
+.d4{font-family:var(--serif);font-size:27px;line-height:1.26;color:var(--star);font-weight:400}
+.d5{font-family:var(--serif);font-size:20px;line-height:1.35;color:var(--star);font-weight:400}
+.ital{font-style:italic}
+.lede{font-size:16px;line-height:1.68;color:var(--star-2);font-weight:400;max-width:64ch}
+.lede.sm{font-size:14px;line-height:1.62;color:var(--star-3)}
+.meta{
+  font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--ice-whisper);
+  font-variant-numeric:tabular-nums;text-transform:uppercase;
+}
+.meta.low{color:var(--star-4)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.rule{height:1px;background:var(--hair-dim);flex:none}
+.rule.ice{background:var(--hair)}
+.spacer{flex:1}
+.mt-s{margin-top:12px}.mt-m{margin-top:22px}.mt-l{margin-top:38px}
+.row-between{display:flex;align-items:flex-end;justify-content:space-between;gap:24px}
+
+/* ---- controls ------------------------------------------------------------ */
+.actions{margin-top:auto;padding-top:26px;display:flex;align-items:center;gap:10px;flex:none}
+.btn{
+  min-height:48px;padding:0 22px;display:inline-flex;align-items:center;gap:10px;
+  border:1px solid var(--hair);color:var(--star-2);
+  font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+  transition:border-color 340ms var(--ease),color 340ms var(--ease),transform 340ms var(--ease-mass),background-color 340ms var(--ease);
+  white-space:nowrap;
+}
+.btn:hover{border-color:var(--hair-ice);color:var(--star)}
+.btn:active{transform:translateY(1px)}
+.btn.key{border-color:var(--ice);color:var(--void);background:var(--ice)}
+.btn.key:hover{background:var(--ice-flare);border-color:var(--ice-flare)}
+.btn.ghost{border-color:transparent;color:var(--star-4)}
+.btn.ghost:hover{color:var(--star-2);border-color:var(--hair-dim)}
+.btn.warn{border-color:var(--hair-dim);color:var(--star-3)}
+.btn.warn:hover{border-color:var(--star-4);color:var(--star)}
+.btn[disabled]{opacity:.34;pointer-events:none}
+.btn.key[disabled]{opacity:1;background:transparent;border-color:var(--hair-dim);color:var(--star-4)}
+.btn .dot{width:5px;height:5px;border-radius:50%;background:currentColor;flex:none}
+
+.chip{
+  min-height:34px;padding:0 13px;display:inline-flex;align-items:center;
+  border:1px solid var(--hair-dim);color:var(--star-4);
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;
+  transition:all 320ms var(--ease);
+}
+.chip.on{border-color:var(--ice);color:var(--ice)}
+button.chip{min-height:48px;padding:0 16px}
+button.chip:hover{color:var(--star-2);border-color:var(--hair)}
+button.chip.on:hover{color:var(--ice-flare);border-color:var(--ice-flare)}
+
+/* celestial toggle: a disc travelling its short orbit */
+.toggle{width:62px;height:48px;display:grid;place-items:center;flex:none}
+.toggle .track{width:56px;height:22px;border:1px solid var(--hair);border-radius:11px;position:relative;transition:border-color 420ms var(--ease)}
+.toggle .knob{
+  position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;
+  background:var(--star-4);transition:transform 520ms var(--ease-mass),background-color 420ms var(--ease);
+}
+.toggle.on .track{border-color:var(--ice)}
+.toggle.on .knob{transform:translateX(34px);background:var(--ice)}
+
+/* ---- provenance: first-class, built by JS from data attributes ----------- */
+.prov{display:inline-flex;align-items:center;gap:11px;vertical-align:middle}
+.prov-mark{flex:none;display:block}
+.prov-mark .p-orbit{fill:none;stroke:var(--ice-dust);stroke-width:1}
+.prov-mark .p-body{fill:var(--ice)}
+.prov-text{
+  font-family:var(--mono);font-size:10px;letter-spacing:.28em;text-transform:uppercase;
+  color:var(--ice);white-space:nowrap;
+}
+.prov-text s{text-decoration:none;color:var(--ice-whisper)}
+.prov[data-kind="recalled"] .p-body{fill:var(--ice-whisper)}
+.prov[data-kind="recalled"] .prov-text{color:var(--ice-whisper)}
+.prov[data-kind="general"] .p-orbit{stroke:var(--star-4)}
+.prov[data-kind="general"] .p-body{fill:var(--star-3)}
+.prov[data-kind="general"] .prov-text{color:var(--star-3)}
+.prov[data-kind="none"] .p-orbit{stroke:var(--star-4);stroke-dasharray:2 4}
+.prov[data-kind="none"] .p-body{fill:none}
+.prov[data-kind="none"] .prov-text{color:var(--star-3)}
+.prov[data-kind="error"] .p-orbit{stroke:var(--star-3);stroke-dasharray:5 4}
+.prov[data-kind="error"] .p-body{fill:var(--star)}
+.prov[data-kind="error"] .prov-text{color:var(--star)}
+.prov-sources{margin-top:9px;display:flex;flex-direction:column;gap:5px}
+.prov-sources span{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--star-4)}
+
+/* ---- scrollers ----------------------------------------------------------- */
+.scroll{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--ice-dust) transparent}
+.scroll::-webkit-scrollbar{width:3px}
+.scroll::-webkit-scrollbar-track{background:transparent}
+.scroll::-webkit-scrollbar-thumb{background:var(--ice-dust)}
+
+/* ---- generic rows -------------------------------------------------------- */
+.rows{display:flex;flex-direction:column}
+.rowitem{
+  display:grid;align-items:center;gap:18px;min-height:76px;padding:14px 6px 14px 0;
+  border-top:1px solid var(--hair-dim);text-align:left;width:100%;
+  transition:background-color 340ms var(--ease),transform 460ms var(--ease-mass);
+}
+button.rowitem:hover{background:var(--plate);transform:translateX(10px)}
+.rowitem:last-child{border-bottom:1px solid var(--hair-dim)}
+
+/* ============================================================================
+   THE ORRERY — persistent navigator
+   ========================================================================== */
+#orrery{
+  position:absolute;inset:0;z-index:80;background:var(--void);
+  opacity:0;pointer-events:none;transition:opacity 520ms var(--ease);
+}
+#orrery.open{opacity:1;pointer-events:auto}
+#orrery .o-head{position:absolute;left:52px;top:44px}
+#orrery .o-foot{position:absolute;left:52px;bottom:40px;display:flex;align-items:center;gap:14px}
+#orrery .o-close{position:absolute;right:40px;bottom:40px}
+#orreryRings{position:absolute;inset:0;pointer-events:none}
+#orreryRings ellipse{fill:none;stroke:var(--hair-dim);stroke-width:1}
+#moons{position:absolute;inset:0}
+.moon{
+  position:absolute;width:48px;height:48px;margin:-24px 0 0 -24px;
+  display:grid;place-items:center;border:1px solid var(--hair);border-radius:50%;
+  font-family:var(--mono);font-size:11px;letter-spacing:.04em;color:var(--star-3);
+  opacity:0;transform:scale(.72);
+  transition:opacity 520ms var(--ease),transform 640ms var(--ease-mass),
+             border-color 340ms var(--ease),color 340ms var(--ease),background-color 340ms var(--ease);
+}
+#orrery.open .moon{opacity:1;transform:none}
+.moon:hover{border-color:var(--ice);color:var(--ice)}
+.moon.here{background:var(--ice);border-color:var(--ice);color:var(--void)}
+.moon-label{
+  position:absolute;font-family:var(--mono);font-size:8.5px;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--star-4);white-space:nowrap;pointer-events:none;
+  transition:color 340ms var(--ease);
+}
+.moon:hover .moon-label,.moon.here .moon-label{color:var(--ice)}
+.moon-label.r{left:60px;top:50%;transform:translateY(-50%)}
+.moon-label.l{right:60px;top:50%;transform:translateY(-50%)}
+.moon-label.t{bottom:58px;left:50%;transform:translateX(-50%)}
+.moon-label.b{top:58px;left:50%;transform:translateX(-50%)}
+.o-group{
+  position:absolute;font-family:var(--serif);font-style:italic;font-size:15px;
+  letter-spacing:.06em;color:var(--ice-dust);pointer-events:none;
+  transform:translate(-50%,-50%);
+}
+
+/* ============================================================================
+   1 — BOOT
+   ========================================================================== */
+.boot-wrap{position:absolute;inset:0;display:grid;place-items:center}
+.boot-mark{text-align:center}
+.boot-title{
+  font-family:var(--serif);font-size:82px;letter-spacing:.44em;text-indent:.44em;
+  color:var(--star);line-height:1;
+}
+.boot-sub{margin-top:22px;text-align:center}
+.boot-arc{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none}
+.boot-arc circle{fill:none;stroke:var(--hair-dim);stroke-width:1}
+.boot-arc .live{stroke:var(--ice);stroke-linecap:round;transition:stroke-dashoffset 3200ms linear}
+.boot-list{position:absolute;left:50%;bottom:96px;transform:translateX(-50%);width:520px;display:flex;flex-direction:column;gap:11px}
+.boot-line{display:flex;align-items:center;gap:14px;opacity:0;transform:translateY(6px);transition:opacity 520ms var(--ease),transform 520ms var(--ease-mass)}
+.boot-line.on{opacity:1;transform:none}
+.boot-line .bl-dot{width:4px;height:4px;border-radius:50%;background:var(--ice);flex:none}
+.boot-line .bl-k{font-family:var(--mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--star-3);flex:1}
+.boot-line .bl-v{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--ice-whisper)}
+
+/* ============================================================================
+   2 — IDLE. The clock is the hero.
+   ========================================================================== */
+.idle-stage{position:absolute;inset:0}
+#idleOrbits{position:absolute;inset:0;pointer-events:none}
+#idleOrbits .orb{fill:none;stroke:var(--hair-dim);stroke-width:1}
+#idleOrbits .orb.near{stroke:rgba(191,227,242,.11)}
+#idleOrbits .leader{fill:none;stroke:var(--hair-dim);stroke-width:1}
+#idleOrbits .body{fill:var(--ice-whisper)}
+#idleOrbits .body.bright{fill:var(--ice)}
+#idleSec{fill:var(--ice)}
+#idleSecTrail{fill:none;stroke:var(--hair-ice);stroke-width:1}
+
+.clock-core{
+  position:absolute;left:50%;top:372px;transform:translate(-50%,-50%);
+  text-align:center;width:760px;
+}
+.clock-time{
+  font-family:var(--serif);font-size:186px;line-height:1;color:var(--star);
+  letter-spacing:.006em;display:flex;align-items:center;justify-content:center;
+  font-variant-numeric:lining-nums;
+}
+/* the colon is drawn, not typed: two ice bodies at a measured distance */
+.clock-time .cc{
+  display:flex;flex-direction:column;gap:32px;margin:0 34px;position:relative;top:-7px;
+  transition:opacity 1.4s var(--ease);
+}
+.clock-time .cc i{width:12px;height:12px;border-radius:50%;background:var(--ice);display:block}
+.clock-time .cc.dim{opacity:.32}
+.clock-time .mer{
+  font-family:var(--mono);font-size:17px;letter-spacing:.34em;color:var(--ice-whisper);
+  align-self:flex-start;margin-left:24px;margin-top:38px;
+}
+.clock-date{
+  margin-top:24px;font-family:var(--serif);font-style:italic;font-size:23px;
+  letter-spacing:.05em;color:var(--star-3);
+}
+.clock-hair{width:132px;height:1px;background:var(--hair);margin:20px auto 0}
+.clock-prompt{margin-top:18px}
+
+.sat{position:absolute;width:250px}
+.sat .sat-k{margin-bottom:8px}
+.sat .sat-v{font-family:var(--serif);font-size:29px;line-height:1.2;color:var(--star-2)}
+.sat .sat-n{margin-top:6px;font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--star-4);text-transform:uppercase}
+.sat.right{text-align:right}
+.sat-1{left:62px;top:112px}
+.sat-2{right:62px;top:112px}
+.sat-3{left:62px;bottom:104px}
+.sat-4{right:62px;bottom:104px}
+button.sat{text-align:left;transition:transform 480ms var(--ease-mass)}
+button.sat:hover{transform:translateY(-3px)}
+button.sat.right{text-align:right}
+
+/* ============================================================================
+   3 — DIMMED
+   ========================================================================== */
+.dim-stage{position:absolute;inset:0;display:grid;place-items:center;text-align:center}
+.dim-time{font-family:var(--serif);font-size:96px;color:var(--star);opacity:.30;line-height:1;letter-spacing:.01em}
+.dim-note{margin-top:26px;opacity:.5}
+.dim-pulse{width:6px;height:6px;border-radius:50%;background:var(--ice);margin:40px auto 0;animation:breathe 5.5s var(--ease-mass) infinite}
+@keyframes breathe{0%,100%{opacity:.22;transform:scale(1)}50%{opacity:.9;transform:scale(1.5)}}
+
+/* ============================================================================
+   4 — WAKE
+   ========================================================================== */
+.wake-stage{position:absolute;inset:0;display:grid;place-items:center}
+.wake-rings{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
+.wake-rings circle{fill:none;stroke:var(--ice);stroke-width:1;transform-origin:150px 150px;opacity:0}
+.screen.active .wake-rings circle{animation:wakering 2600ms var(--ease-mass) infinite}
+.screen.active .wake-rings circle:nth-child(2){animation-delay:420ms}
+.screen.active .wake-rings circle:nth-child(3){animation-delay:840ms}
+@keyframes wakering{0%{transform:scale(.2);opacity:0}22%{opacity:.85}100%{transform:scale(1);opacity:0}}
+.wake-core{position:relative;text-align:center}
+.wake-word{font-family:var(--serif);font-size:60px;font-style:italic;color:var(--star);letter-spacing:.02em}
+.wake-sub{margin-top:20px}
+
+/* ============================================================================
+   5 — LISTENING
+   ========================================================================== */
+.listen-wrap{display:flex;flex-direction:column;height:100%}
+.transcript{
+  font-family:var(--serif);font-size:52px;line-height:1.24;color:var(--star-4);
+  max-width:1000px;margin-top:auto;
+}
+.transcript .w{transition:color 620ms var(--ease),opacity 620ms var(--ease);opacity:.5}
+.transcript .w.said{color:var(--star-2);opacity:1}
+.transcript .w.fresh{color:var(--star);opacity:1}
+.transcript .w.interim{color:var(--ice-whisper);font-style:italic;opacity:1}
+.wavebar{margin-top:44px;height:96px;position:relative;flex:none}
+#waveCanvas{position:absolute;inset:0;width:100%;height:100%}
+.wave-meta{display:flex;justify-content:space-between;align-items:center;margin-top:16px}
+
+/* ============================================================================
+   6 — THINKING
+   ========================================================================== */
+.think-stage{position:absolute;inset:0}
+#spiral{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none}
+#spiral .arm{fill:none;stroke:var(--hair-dim);stroke-width:1}
+#spiralSpin{transform-origin:220px 220px;animation:spin 46s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#spiral .pt{fill:var(--ice)}
+.think-core{position:absolute;left:68px;top:150px;width:440px}
+.think-word{font-family:var(--serif);font-style:italic;font-size:44px;color:var(--star-2)}
+.think-log{position:absolute;left:68px;bottom:64px;display:flex;flex-direction:column;gap:13px;width:520px}
+.think-step{display:flex;align-items:center;gap:14px;opacity:0;transform:translateY(8px);transition:opacity 620ms var(--ease),transform 620ms var(--ease-mass)}
+.think-step.on{opacity:1;transform:none}
+.think-step .ts-dot{width:5px;height:5px;border-radius:50%;border:1px solid var(--ice-dust);flex:none}
+.think-step.on .ts-dot{background:var(--ice);border-color:var(--ice)}
+.think-step.done .ts-dot{background:transparent;border-color:var(--ice-dust)}
+.think-step span{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--star-3)}
+.think-step.done span{color:var(--star-4)}
+
+/* ============================================================================
+   7 — SPEAKING
+   ========================================================================== */
+.speak-caption{font-family:var(--serif);font-size:46px;line-height:1.3;color:var(--star);max-width:940px;margin:auto 0}
+.speak-caption .w{opacity:0;transition:opacity 480ms var(--ease)}
+.speak-caption .w.on{opacity:1}
+.prov-block{margin-top:auto;padding-top:30px;border-top:1px solid var(--hair-dim)}
+.badge-switch{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px}
+
+/* ============================================================================
+   8 — QUICK ANSWER
+   ========================================================================== */
+.answer-grid{display:grid;grid-template-columns:1fr 372px;gap:52px;flex:1;min-height:0}
+.excerpts{display:flex;flex-direction:column;margin-top:26px}
+.excerpt{
+  display:grid;grid-template-columns:26px 1fr;gap:0 14px;padding:18px 0;
+  border-top:1px solid var(--hair-dim);text-align:left;width:100%;
+  transition:opacity 420ms var(--ease);opacity:.55;
+}
+.excerpt.lit{opacity:1}
+.excerpt .ex-dot{width:8px;height:8px;border-radius:50%;border:1px solid var(--ice-dust);margin-top:7px;transition:all 420ms var(--ease)}
+.excerpt.lit .ex-dot{background:var(--ice);border-color:var(--ice)}
+.excerpt .ex-q{font-family:var(--serif);font-size:19px;line-height:1.42;color:var(--star-2)}
+.excerpt .ex-m{grid-column:2;margin-top:9px;font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--star-4)}
+.source-orrery{position:relative;height:372px;margin-top:8px}
+#srcOrbits{position:absolute;inset:0}
+#srcOrbits ellipse{fill:none;stroke:var(--hair-dim);stroke-width:1}
+.src-moon{
+  position:absolute;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;
+  border:1px solid var(--hair);display:grid;place-items:center;
+  font-family:var(--mono);font-size:10px;color:var(--star-3);
+  transition:all 420ms var(--ease);
+}
+.src-moon.lit{background:var(--ice);border-color:var(--ice);color:var(--void)}
+.src-core{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  font-family:var(--serif);font-style:italic;font-size:15px;color:var(--ice-dust);text-align:center;
+}
+
+/* ============================================================================
+   9 — DEEP RESEARCH
+   ========================================================================== */
+.res-stage{position:relative;flex:1;min-height:0}
+#resOrbit{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%)}
+#resOrbit .ring{fill:none;stroke:var(--hair-dim);stroke-width:1}
+#resOrbit .prog{fill:none;stroke:var(--ice);stroke-width:1;stroke-linecap:round;transition:stroke-dashoffset 900ms var(--ease)}
+#resOrbit .found{fill:var(--ice);opacity:0;transition:opacity 700ms var(--ease)}
+#resOrbit .found.on{opacity:1}
+.res-core{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);width:420px;text-align:center}
+.res-pct{font-family:var(--serif);font-size:64px;color:var(--star);line-height:1}
+.res-log{position:absolute;right:0;top:0;width:330px;display:flex;flex-direction:column;gap:10px}
+.res-log div{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--star-4);text-transform:uppercase;opacity:0;transform:translateY(4px);transition:all 520ms var(--ease)}
+.res-log div.on{opacity:1;transform:none}
+.res-log div.newest{color:var(--ice)}
+
+/* ============================================================================
+   10 — RESULTS
+   ========================================================================== */
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-top:20px;flex:none}
+.tab{
+  min-height:48px;padding:0 16px;display:inline-flex;align-items:center;gap:9px;
+  border-bottom:1px solid transparent;color:var(--star-4);
+  font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+  transition:color 340ms var(--ease),border-color 340ms var(--ease);
+}
+.tab:hover{color:var(--star-2)}
+.tab.on{color:var(--ice);border-bottom-color:var(--ice)}
+.tab i{font-style:normal;color:var(--star-4);font-size:9px}
+.tab.on i{color:var(--ice-whisper)}
+.cards{margin-top:6px;flex:1;min-height:0;padding-right:14px}
+.card{
+  display:grid;grid-template-columns:1fr 148px;gap:26px;align-items:start;
+  padding:22px 4px 22px 0;border-top:1px solid var(--hair-dim);text-align:left;width:100%;
+  transition:transform 460ms var(--ease-mass),background-color 340ms var(--ease);
+}
+.card:hover{transform:translateX(12px);background:var(--plate)}
+.card .c-t{font-family:var(--serif);font-size:25px;line-height:1.28;color:var(--star)}
+.card .c-x{margin-top:9px;font-size:13.5px;line-height:1.6;color:var(--star-3);max-width:62ch}
+.card .c-m{text-align:right;font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ice-whisper);line-height:1.9;padding-top:6px}
+.card .c-m b{display:block;color:var(--star-4);font-weight:400}
+
+/* ============================================================================
+   11 — ARTICLE READER
+   ========================================================================== */
+.reader{display:grid;grid-template-columns:212px 1fr;gap:56px;flex:1;min-height:0}
+.reader-rail{display:flex;flex-direction:column;gap:20px;border-right:1px solid var(--hair-dim);padding-right:24px}
+.reader-rail .rr{display:flex;flex-direction:column;gap:7px}
+.reader-body{padding-right:22px}
+.reader-body h1{font-family:var(--serif);font-size:44px;line-height:1.16;font-weight:400;margin:0 0 24px;color:var(--star);max-width:22ch}
+.reader-body p{font-size:15.5px;line-height:1.82;color:var(--star-2);margin:0 0 20px;max-width:66ch}
+.reader-body p.drop::first-letter{font-family:var(--serif);font-size:56px;line-height:.86;float:left;padding:6px 12px 0 0;color:var(--ice)}
+.pullquote{margin:34px 0;padding-left:26px;border-left:1px solid var(--ice);max-width:56ch}
+.pullquote q{font-family:var(--serif);font-size:26px;line-height:1.4;color:var(--star);font-style:italic;quotes:none}
+.pullquote .pq-m{margin-top:12px}
+
+/* ============================================================================
+   12 — FOLLOW-UP THREAD
+   ========================================================================== */
+.thread{flex:1;min-height:0;padding-right:16px;margin-top:16px;display:flex;flex-direction:column;gap:4px}
+.turn{padding:16px 0;position:relative}
+.turn .t-k{margin-bottom:10px}
+.turn.you{padding-left:0}
+.turn.you .t-b{font-family:var(--serif);font-size:26px;line-height:1.38;color:var(--star)}
+.turn.atlas{padding-left:40px;border-left:1px solid var(--hair-dim)}
+.turn.atlas .t-b{font-size:15.5px;line-height:1.76;color:var(--star-2);max-width:62ch}
+.turn.enter{animation:turnin 640ms var(--ease-mass) both}
+@keyframes turnin{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.suggests{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;flex:none}
+.composer{display:flex;align-items:center;gap:14px;border-top:1px solid var(--hair);padding-top:8px;margin-top:14px;flex:none}
+.composer input{flex:1;height:56px;font-family:var(--serif);font-size:22px;color:var(--star)}
+.composer input::placeholder{color:var(--star-4);font-style:italic}
+.actionrow{display:flex;gap:10px;margin-top:14px;flex:none;align-items:center}
+
+/* ============================================================================
+   13 — WEATHER
+   ========================================================================== */
+.wx-top{display:grid;grid-template-columns:auto 1fr;gap:56px;align-items:center}
+.wx-temp{font-family:var(--serif);font-size:158px;line-height:.84;color:var(--star);letter-spacing:-.02em}
+.wx-temp sup{font-size:62px;vertical-align:baseline;color:var(--ice);letter-spacing:0;position:relative;top:-56px}
+.wx-hours{display:flex;align-items:flex-end;gap:0;margin-top:auto;padding-top:22px}
+.wx-hour{flex:1;display:flex;flex-direction:column;gap:9px;position:relative;padding-bottom:20px}
+.wx-hour b{font-family:var(--serif);font-size:26px;font-weight:400;color:var(--star-2)}
+.wx-hour i{position:absolute;left:0;bottom:0;width:7px;height:7px;border-radius:50%;background:var(--ice-dust)}
+.wx-hour.now i{background:var(--ice)}
+.wx-hours-wrap .wx-rule{position:absolute;left:0;right:0;bottom:3px;height:1px;background:var(--hair-dim)}
+.wx-hours-wrap{position:relative;margin-top:34px}
+.wx-arc{position:relative;height:186px}
+#wxArc{position:absolute;inset:0}
+#wxArc .path{fill:none;stroke:var(--hair-dim);stroke-width:1}
+#wxArc .lived{fill:none;stroke:var(--ice-dust);stroke-width:1}
+#wxArc .horizon{stroke:var(--hair-dim);stroke-width:1}
+#wxArc .sun{fill:var(--ice)}
+#wxArc .halo{fill:none;stroke:var(--hair-ice);stroke-width:1}
+.wx-days{display:grid;grid-template-columns:1fr 1fr;gap:0;margin-top:40px}
+.wx-day{padding:26px 30px 8px 0;border-top:1px solid var(--hair-dim)}
+.wx-day+.wx-day{padding-left:30px;border-left:1px solid var(--hair-dim)}
+.wx-hl{display:flex;align-items:baseline;gap:14px;margin-top:12px}
+.wx-hl b{font-family:var(--serif);font-size:44px;font-weight:400;color:var(--star)}
+.wx-hl s{text-decoration:none;font-family:var(--serif);font-size:28px;color:var(--star-4)}
+
+/* ============================================================================
+   14 — TIMERS
+   ========================================================================== */
+.timer-list{display:flex;flex-direction:column;flex:1;min-height:0;margin-top:14px}
+.timer{
+  display:grid;grid-template-columns:150px 1fr auto;gap:30px;align-items:center;
+  padding:22px 0;border-top:1px solid var(--hair-dim);
+}
+.timer:last-of-type{border-bottom:1px solid var(--hair-dim)}
+.timer.done .t-count{color:var(--ice)}
+.timer-orbit{width:150px;height:92px}
+.timer-orbit .ell{fill:none;stroke:var(--hair);stroke-width:1}
+.timer-orbit .tick{stroke:var(--ice-dust);stroke-width:1}
+.timer-orbit .body{fill:var(--ice)}
+.timer-orbit .body.paused{fill:var(--star-4)}
+.t-count{font-family:var(--serif);font-size:56px;line-height:1;color:var(--star);font-variant-numeric:tabular-nums}
+.t-label{margin-top:9px}
+.t-ctl{display:flex;gap:8px;align-items:center}
+.timer.paused .t-count{color:var(--star-4)}
+
+/* ============================================================================
+   15 — ALARMS
+   ========================================================================== */
+.alarm-row{grid-template-columns:170px 1fr auto 62px}
+.alarm-row .a-time{font-family:var(--serif);font-size:44px;line-height:1;color:var(--star);white-space:nowrap}
+.alarm-row .a-time em{font-family:var(--mono);font-style:normal;font-size:13px;letter-spacing:.22em;color:var(--ice-whisper);margin-left:8px}
+.alarm-row.off .a-time{color:var(--star-4)}
+.alarm-row.off .a-time em{color:var(--star-4)}
+.alarm-row .a-name{font-family:var(--sans);font-size:16px;color:var(--star-2)}
+.alarm-row.off .a-name{color:var(--star-4)}
+
+/* ============================================================================
+   16 — ALARM EDITOR
+   ========================================================================== */
+.ae-grid{display:grid;grid-template-columns:340px 1fr;gap:64px;flex:1;min-height:0}
+.ae-clock{display:flex;align-items:center;gap:18px}
+.ae-unit{display:flex;flex-direction:column;align-items:center;gap:6px}
+.ae-unit .stepper{width:56px;height:48px;display:grid;place-items:center;color:var(--star-4);transition:color 320ms var(--ease)}
+.ae-unit .stepper:hover{color:var(--ice)}
+.ae-unit .v{font-family:var(--serif);font-size:84px;line-height:1;color:var(--star);font-variant-numeric:tabular-nums}
+.ae-colon{font-family:var(--serif);font-size:72px;color:var(--ice);margin-bottom:12px}
+.ae-mer{display:flex;flex-direction:column;gap:6px;margin-left:6px}
+.ae-days{display:flex;gap:8px;margin-top:14px}
+.ae-day{
+  width:48px;height:48px;border-radius:50%;border:1px solid var(--hair-dim);
+  display:grid;place-items:center;font-family:var(--mono);font-size:11px;color:var(--star-4);
+  transition:all 340ms var(--ease);
+}
+.ae-day.on{border-color:var(--ice);color:var(--ice)}
+.ae-sounds{display:flex;flex-direction:column;margin-top:12px}
+.snd{
+  display:grid;grid-template-columns:22px 1fr auto;gap:16px;align-items:center;
+  padding:12px 0;border-top:1px solid var(--hair-dim);text-align:left;width:100%;min-height:62px;
+  transition:background-color 320ms var(--ease)}
+.snd:hover{background:var(--plate)}
+.snd:last-child{border-bottom:1px solid var(--hair-dim)}
+.snd .s-mark{width:9px;height:9px;border-radius:50%;border:1px solid var(--ice-dust);margin-left:6px}
+.snd.on .s-mark{background:var(--ice);border-color:var(--ice)}
+.snd .s-n{font-family:var(--serif);font-size:21px;color:var(--star-2)}
+.snd.on .s-n{color:var(--star)}
+.snd .s-d{margin-top:3px;font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--star-4)}
+.snd .s-play{font-family:var(--mono);font-size:9.5px;letter-spacing:.2em;color:var(--ice-whisper);text-transform:uppercase;padding-right:6px}
+.vol{display:flex;align-items:center;gap:18px;margin-top:26px}
+.vol input[type=range]{-webkit-appearance:none;appearance:none;flex:1;height:48px;background:transparent}
+.vol input[type=range]::-webkit-slider-runnable-track{height:1px;background:var(--hair)}
+.vol input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--ice);margin-top:-8px}
+.vol input[type=range]::-moz-range-track{height:1px;background:var(--hair)}
+.vol input[type=range]::-moz-range-thumb{width:16px;height:16px;border:0;border-radius:50%;background:var(--ice)}
+
+/* ============================================================================
+   17 — AGENDA
+   ========================================================================== */
+.agenda{display:grid;grid-template-columns:1fr 292px;gap:56px;flex:1;min-height:0}
+.day{position:relative;padding-right:20px}
+.hour{display:grid;grid-template-columns:74px 1fr;gap:20px;align-items:start;min-height:56px}
+.hour .h-k{font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;color:var(--star-4);padding-top:9px;text-transform:uppercase}
+.hour .h-l{border-top:1px solid var(--hair-dim);height:100%;padding-top:8px}
+.ev{
+  display:block;width:100%;text-align:left;border-left:1px solid var(--ice);
+  padding:9px 14px;margin-bottom:6px;background:var(--plate);
+  transition:background-color 340ms var(--ease),transform 460ms var(--ease-mass);
+}
+.ev:hover{background:var(--plate-2);transform:translateX(3px)}
+.ev .e-t{font-family:var(--serif);font-size:21px;color:var(--star);line-height:1.2}
+.ev .e-m{margin-top:5px;font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ice-whisper)}
+.ev.past{border-left-color:var(--ice-dust);opacity:.5}
+.nowline{position:absolute;left:0;right:20px;height:1px;background:var(--ice);z-index:3}
+.nowline::before{content:'';position:absolute;left:66px;top:-3px;width:7px;height:7px;border-radius:50%;background:var(--ice)}
+.nowline .nl-t{position:absolute;right:0;top:-16px;font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:var(--ice)}
+
+/* ============================================================================
+   18 — EVENT EDITOR
+   ========================================================================== */
+.form{display:grid;grid-template-columns:1fr 1fr;gap:0 56px;margin-top:8px}
+.fieldrow{padding:16px 0;border-bottom:1px solid var(--hair-dim)}
+.fieldrow .f-k{margin-bottom:10px}
+.fieldrow input{width:100%;font-family:var(--serif);font-size:26px;color:var(--star);min-height:44px}
+.fieldrow input::placeholder{color:var(--star-4);font-style:italic}
+.fieldrow .f-ctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.people{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.person{
+  height:48px;padding:0 16px 0 8px;display:inline-flex;align-items:center;gap:11px;
+  border:1px solid var(--hair-dim);
+}
+.person .p-o{width:28px;height:28px;border-radius:50%;border:1px solid var(--ice);display:grid;place-items:center;font-family:var(--mono);font-size:9px;color:var(--ice)}
+.person .p-n{font-size:14px;color:var(--star-2)}
+.person.add{color:var(--star-4);padding-left:16px;font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase}
+.person.add:hover{color:var(--ice);border-color:var(--hair)}
+
+/* ============================================================================
+   19 / 21 / 24 — READ-BACK CONFIRMATION
+   ========================================================================== */
+.readback{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;max-width:940px}
+.rb-quote{font-family:var(--serif);font-size:44px;line-height:1.34;color:var(--star);margin-top:24px}
+.rb-quote em{font-style:italic;color:var(--ice)}
+.rb-detail{display:flex;gap:44px;margin-top:38px;flex-wrap:wrap}
+.rb-detail .rd{display:flex;flex-direction:column;gap:8px}
+.rb-detail .rd b{font-family:var(--serif);font-size:20px;font-weight:400;color:var(--star-2)}
+.phase{display:none}
+.phase.on{display:block;animation:phasein 620ms var(--ease-mass) both}
+@keyframes phasein{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.done-mark{display:flex;align-items:center;gap:18px;margin-bottom:22px}
+.done-mark .dm-o{width:44px;height:44px;border-radius:50%;border:1px solid var(--ice);display:grid;place-items:center;flex:none}
+.done-mark .dm-o span{width:12px;height:12px;border-radius:50%;background:var(--ice);animation:settle 900ms var(--ease-mass) both}
+@keyframes settle{from{transform:scale(2.6);opacity:0}to{transform:scale(1);opacity:1}}
+
+/* ---- attachment plate (24) ---- */
+.attach{display:flex;align-items:center;gap:22px;margin-top:30px;padding:16px;border:1px solid var(--hair-dim);max-width:600px}
+.attach canvas{width:112px;height:78px;flex:none;display:block}
+.attach .at-n{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--star-2)}
+.attach .at-m{margin-top:7px}
+
+/* ============================================================================
+   20 — CONTACTS
+   ========================================================================== */
+.cands{display:grid;grid-template-columns:repeat(3,1fr);gap:0;flex:1;min-height:0;margin-top:26px;align-content:start}
+.cand{
+  text-align:left;padding:34px 30px 34px 0;border-top:1px solid var(--hair);
+  display:flex;flex-direction:column;align-items:flex-start;height:100%;
+  transition:background-color 340ms var(--ease);
+}
+.cand+.cand{padding-left:30px;border-left:1px solid var(--hair-dim)}
+.cand:hover{background:var(--plate)}
+.cand .c-orb{width:62px;height:62px;border-radius:50%;border:1px solid var(--hair-ice);display:grid;place-items:center;font-family:var(--mono);font-size:15px;color:var(--ice);letter-spacing:.06em;transition:all 420ms var(--ease)}
+.cand:hover .c-orb{background:var(--ice);color:var(--void);border-color:var(--ice)}
+.cand .c-n{font-family:var(--serif);font-size:30px;margin-top:22px;color:var(--star);line-height:1.15}
+.cand .c-r{margin-top:12px;font-size:14px;line-height:1.6;color:var(--star-3)}
+.cand .c-l{margin-top:auto;padding-top:24px}
+
+/* ============================================================================
+   22 — INBOX
+   ========================================================================== */
+.inbox{flex:1;min-height:0;margin-top:10px;padding-right:14px}
+.mail{grid-template-columns:14px 210px 1fr 96px}
+.mail .m-dot{width:7px;height:7px;border-radius:50%;background:transparent;border:1px solid var(--ice-dust)}
+.mail.unread .m-dot{background:var(--ice);border-color:var(--ice)}
+.mail .m-s{font-family:var(--serif);font-size:21px;color:var(--star-3);line-height:1.2}
+.mail.unread .m-s{color:var(--star)}
+.mail .m-sub{font-size:15px;color:var(--star-3);line-height:1.4}
+.mail.unread .m-sub{color:var(--star-2)}
+.mail .m-x{margin-top:5px;font-size:13px;color:var(--star-4);line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:56ch}
+.mail .m-t{text-align:right;font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;color:var(--star-4);text-transform:uppercase}
+
+/* ============================================================================
+   23 — EMAIL OPEN
+   ========================================================================== */
+.mail-body{flex:1;min-height:0;padding-right:20px;margin-top:22px}
+.mail-body p{font-size:15.5px;line-height:1.8;color:var(--star-2);margin:0 0 18px;max-width:70ch}
+.summary{margin-top:26px;padding:24px 26px;border:1px solid var(--hair);max-width:70ch}
+.summary ul{margin:18px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:12px}
+.summary li{display:grid;grid-template-columns:18px 1fr;gap:12px;font-size:15px;line-height:1.6;color:var(--star-2)}
+.summary li::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--ice);margin-top:9px}
+
+/* ============================================================================
+   25 — CAMERA
+   ========================================================================== */
+.cam{position:absolute;inset:0;background:var(--void)}
+#camCanvas{position:absolute;left:64px;top:92px;width:1152px;height:600px}
+.cam-frame{position:absolute;left:64px;top:92px;width:1152px;height:600px;pointer-events:none}
+.cam-frame .cnr{position:absolute;width:34px;height:34px;border:1px solid var(--ice)}
+.cam-frame .c1{left:0;top:0;border-right:0;border-bottom:0}
+.cam-frame .c2{right:0;top:0;border-left:0;border-bottom:0}
+.cam-frame .c3{left:0;bottom:0;border-right:0;border-top:0}
+.cam-frame .c4{right:0;bottom:0;border-left:0;border-top:0}
+.cam-frame .edge{position:absolute;inset:0;border:1px solid var(--hair-ice);animation:recedge 2.4s var(--ease-mass) infinite}
+@keyframes recedge{0%,100%{opacity:.22}50%{opacity:.85}}
+.rec{position:absolute;left:88px;top:116px;display:flex;align-items:center;gap:12px;z-index:3}
+.rec .r-o{width:15px;height:15px;border-radius:50%;background:var(--ice);animation:recblink 1.6s var(--ease-mass) infinite}
+@keyframes recblink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.32;transform:scale(.82)}}
+.rec .r-t{font-family:var(--mono);font-size:10.5px;letter-spacing:.3em;color:var(--ice-flare);text-transform:uppercase}
+.cam-meta{position:absolute;right:88px;top:118px;text-align:right;z-index:3}
+.cam-bar{position:absolute;left:64px;right:64px;bottom:36px;display:flex;align-items:center;justify-content:space-between;z-index:3}
+.shutter{width:74px;height:74px;border-radius:50%;border:1px solid var(--ice);display:grid;place-items:center;transition:transform 420ms var(--ease-mass)}
+.shutter span{width:56px;height:56px;border-radius:50%;background:var(--ice);transition:transform 420ms var(--ease-mass)}
+.shutter:active span{transform:scale(.86)}
+#flash{position:absolute;inset:0;background:var(--ice-flare);opacity:0;pointer-events:none;z-index:10}
+#flash.go{animation:flash 420ms var(--ease) both}
+@keyframes flash{0%{opacity:0}12%{opacity:.9}100%{opacity:0}}
+.cam-toast{position:absolute;left:50%;bottom:132px;transform:translateX(-50%) translateY(10px);opacity:0;transition:all 520ms var(--ease);z-index:4}
+.cam-toast.on{opacity:1;transform:translateX(-50%)}
+
+/* ============================================================================
+   26 — GALLERY
+   ========================================================================== */
+.gal{display:grid;grid-template-columns:repeat(3,1fr);gap:26px 26px;margin-top:22px;flex:1;min-height:0;align-content:start;padding-right:8px}
+.plate{text-align:left;transition:transform 520ms var(--ease-mass),opacity 520ms var(--ease)}
+.plate:hover{transform:translateY(-4px)}
+.plate canvas{width:100%;height:170px;display:block;border:1px solid var(--hair-dim)}
+.plate .pl-c{margin-top:11px;font-family:var(--serif);font-size:17px;color:var(--star-2);line-height:1.3}
+.plate .pl-m{margin-top:6px}
+.plate.gone{opacity:0;transform:scale(.94)}
+.detail{position:absolute;inset:0;background:var(--void);z-index:12;opacity:0;pointer-events:none;transition:opacity 460ms var(--ease)}
+.detail.on{opacity:1;pointer-events:auto}
+.detail-grid{display:grid;grid-template-columns:1fr 400px;gap:56px;flex:1;min-height:0;align-items:center}
+.detail canvas{width:100%;height:auto;aspect-ratio:16/10;border:1px solid var(--hair-dim);display:block}
+
+/* ============================================================================
+   27 — MEMORY
+   ========================================================================== */
+.mem-grid{display:grid;grid-template-columns:1fr 430px;gap:54px;flex:1;min-height:0}
+.mem-list{padding-right:14px}
+.mem{
+  display:grid;grid-template-columns:1fr auto;gap:22px;align-items:center;
+  padding:19px 0;border-top:1px solid var(--hair-dim);text-align:left;width:100%;
+  transition:background-color 320ms var(--ease),opacity 520ms var(--ease),transform 520ms var(--ease-mass);
+}
+.mem:hover{background:var(--plate)}
+.mem.sel{background:var(--plate-2)}
+.mem.gone{opacity:0;transform:translateX(-18px)}
+.mem .mm-t{font-family:var(--serif);font-size:21px;line-height:1.32;color:var(--star-2)}
+.mem.sel .mm-t{color:var(--star)}
+.mem .mm-a{margin-top:8px}
+.mem-chart{position:relative}
+#memOrbits{position:absolute;inset:0}
+#memOrbits ellipse{fill:none;stroke:var(--hair-dim);stroke-width:1}
+#memOrbits .axis{stroke:var(--hair-dim);stroke-dasharray:2 5}
+.mem-moon{position:absolute;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;display:grid;place-items:center;transition:opacity 520ms var(--ease),transform 520ms var(--ease-mass)}
+.mem-moon i{display:block;width:9px;height:9px;border-radius:50%;background:var(--ice-dust);transition:all 420ms var(--ease)}
+.mem-moon.sel i{background:var(--ice);transform:scale(1.7)}
+.mem-moon.gone{opacity:0;transform:scale(.4)}
+.mem-core{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;font-family:var(--serif);font-style:italic;font-size:14px;color:var(--ice-dust)}
+
+/* ============================================================================
+   28 — JOBS
+   ========================================================================== */
+.jobs{display:flex;flex-direction:column;gap:0;flex:1;min-height:0;margin-top:14px}
+.job{display:grid;grid-template-columns:96px 1fr auto;gap:28px;align-items:center;padding:24px 0;border-top:1px solid var(--hair-dim)}
+.job:last-of-type{border-bottom:1px solid var(--hair-dim)}
+.job-orb{width:96px;height:96px}
+.job-orb .ring{fill:none;stroke:var(--hair-dim);stroke-width:1}
+.job-orb .arc{fill:none;stroke:var(--ice);stroke-width:1.5;stroke-linecap:round;transition:stroke-dashoffset 800ms var(--ease)}
+.job-orb .arc.queued{stroke:var(--ice-dust)}
+.job-orb .arc.done{stroke:var(--ice-whisper)}
+.job-orb .ctr{fill:var(--star-2);font-family:var(--mono);font-size:15px;text-anchor:middle;letter-spacing:.02em}
+.job .j-t{font-family:var(--serif);font-size:25px;color:var(--star);line-height:1.24}
+.job .j-m{margin-top:9px}
+.away{margin-top:auto;padding-top:26px;border-top:1px solid var(--hair)}
+.away-list{display:flex;gap:44px;margin-top:18px}
+.away-list .aw{display:flex;flex-direction:column;gap:8px;max-width:29ch}
+.away-list .aw b{font-family:var(--serif);font-size:17px;font-weight:400;color:var(--star-2);line-height:1.35}
+
+/* ============================================================================
+   29 / 30 — MUTED, OFFLINE
+   ========================================================================== */
+.center-stage{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:0 120px}
+.big-glyph{margin:0 auto 40px;display:block}
+.big-glyph .ring{fill:none;stroke:var(--hair);stroke-width:1}
+.big-glyph .slash{stroke:var(--star);stroke-width:1}
+.big-glyph .body{fill:var(--star-4)}
+.big-glyph .body.ice{fill:var(--ice)}
+.center-stage .d2{max-width:18ch;margin:0 auto}
+.center-stage .lede{margin:22px auto 0;max-width:52ch;text-align:center}
+.center-actions{display:flex;gap:12px;justify-content:center;margin-top:40px}
+.retry-log{margin-top:26px;min-height:16px}
+
+/* ============================================================================
+   31 — HEALTH
+   ========================================================================== */
+.caps{display:grid;grid-template-columns:repeat(5,1fr);gap:0;margin-top:26px;border-top:1px solid var(--hair)}
+.cap{padding:26px 22px 26px 0;border-bottom:1px solid var(--hair-dim);display:flex;flex-direction:column;gap:10px}
+.cap:nth-child(n+6){}
+.cap .c-o{width:11px;height:11px;border-radius:50%;background:var(--ice)}
+.cap.degraded .c-o{background:transparent;border:1px solid var(--ice-whisper)}
+.cap.off .c-o{background:transparent;border:1px dashed var(--star-4)}
+.cap .c-n{font-family:var(--serif);font-size:19px;color:var(--star-2);line-height:1.25}
+.cap.off .c-n{color:var(--star-4)}
+.cap .c-s{font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ice-whisper)}
+.cap.off .c-s{color:var(--star-4)}
+.vitals{display:flex;gap:56px;margin-top:auto;padding-top:26px;border-top:1px solid var(--hair)}
+.vital{display:flex;flex-direction:column;gap:9px}
+.vital b{font-family:var(--serif);font-size:34px;font-weight:400;color:var(--star)}
+
+/* ============================================================================
+   ADDENDA — layout locks discovered while composing the screens
+   ========================================================================== */
+.screen{overflow:hidden}
+#s5 .listen-wrap{flex:1;min-height:0}
+#s8 .d3{font-size:38px}
+.excerpts{overflow-y:auto;min-height:0;scrollbar-width:thin;scrollbar-color:var(--ice-dust) transparent}
+.excerpts::-webkit-scrollbar{width:3px}
+.excerpts::-webkit-scrollbar-thumb{background:var(--ice-dust)}
+.excerpt{padding:15px 0}
+
+/* agenda: a real day, 46px to the hour */
+.day-scroll{overflow-y:auto;min-height:0;position:relative;scrollbar-width:thin;scrollbar-color:var(--ice-dust) transparent}
+.day-scroll::-webkit-scrollbar{width:3px}
+.day-scroll::-webkit-scrollbar-thumb{background:var(--ice-dust)}
+.day{position:relative;height:828px}
+.hourline{position:absolute;left:74px;right:16px;height:1px;background:var(--hair-dim)}
+.hourline span{
+  position:absolute;left:-74px;top:-7px;font-family:var(--mono);font-size:9px;
+  letter-spacing:.18em;color:var(--star-4);text-transform:uppercase;
+}
+.ev.abs{position:absolute;left:74px;right:16px;width:auto;margin:0;padding:5px 12px;overflow:visible}
+.ev.abs::after{content:'';position:absolute;left:0;right:0;top:-3px;bottom:-3px}
+.ev.abs .e-t{font-size:17px;line-height:1.2}
+.ev.abs .e-m{margin-top:2px;font-size:8.5px;letter-spacing:.14em}
+.nowline{left:74px;right:16px}
+.nowline::before{left:-6px}
+
+/* weather: lock the arc box so rise/set sit at its ends */
+.wx-arc{width:520px}
+
+/* memory chart: svg and moons share one 430 square, centred */
+#memOrbits,#memMoons{position:absolute;left:0;top:50%;width:430px;height:430px;transform:translateY(-50%)}
+.mem-main{text-align:left;width:100%;min-height:48px}
+.mem-forget{display:flex;gap:8px;align-items:center}
+
+/* a scrolling list should dissolve at its edge, never guillotine a line */
+.fade-b{
+  -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 44px),transparent);
+  mask-image:linear-gradient(to bottom,#000 calc(100% - 44px),transparent);
+}
+.fade-tb{
+  -webkit-mask-image:linear-gradient(to bottom,transparent,#000 34px,#000 calc(100% - 34px),transparent);
+  mask-image:linear-gradient(to bottom,transparent,#000 34px,#000 calc(100% - 34px),transparent);
+}
+
+/* orrery legend */
+.o-legend{position:absolute;right:44px;top:44px;text-align:right;display:flex;flex-direction:column;gap:9px}
+.o-legend div{font-family:var(--mono);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--star-4)}
+.o-legend div b{color:var(--ice-whisper);font-weight:400;margin-right:10px}
+
+/* ============================================================================
+   MOTION RESTRAINT
+   ========================================================================== */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    animation-duration:.001ms !important;animation-iteration-count:1 !important;
+    transition-duration:.001ms !important;
+  }
+  .starlayer canvas{animation:none}
+}
+</style>
+</head>
+<body>
+<div id="shell">
+  <div id="stage">
+
+    <div class="starlayer" id="sl1"><canvas width="1360" height="880"></canvas></div>
+    <div class="starlayer" id="sl2"><canvas width="1360" height="880"></canvas></div>
+    <div class="starlayer" id="sl3"><canvas width="1360" height="880"></canvas></div>
+
+    <header id="chrome">
+      <button id="navBtn" aria-label="Open the orrery — every screen">
+        <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
+          <ellipse class="n-ring" cx="13" cy="13" rx="12" ry="6.4" transform="rotate(-22 13 13)"/>
+          <circle class="n-orb" cx="13" cy="13" r="2.6"/>
+          <circle class="n-orb" cx="24" cy="8.6" r="1.6"/>
+        </svg>
+      </button>
+      <div class="wordmark">Atlas</div>
+      <div class="chrome-spacer"></div>
+      <div class="chrome-meta" id="chromeTimers">— timers</div>
+      <div class="chrome-meta" id="chromeLabel">№ 02 · <b>Idle</b></div>
+      <button id="micBtn" aria-label="Mute the microphone">
+        <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+          <rect class="m-body" x="7.6" y="2.6" width="6.8" height="11.4" rx="3.4"/>
+          <path class="m-body" d="M4.4 10.4a6.6 6.6 0 0 0 13.2 0M11 17v2.6"/>
+          <path class="m-slash" d="M3.4 3.4 18.6 18.6"/>
+        </svg>
+      </button>
+    </header>
+
+    <main id="screens">
+<!-- ══ 1 BOOT ═══════════════════════════════════════════════════════════ -->
+<section class="screen" id="s1" data-screen="1">
+  <div class="field bleed">
+    <div class="boot-wrap">
+      <svg class="boot-arc" width="420" height="420" viewBox="0 0 420 420" aria-hidden="true">
+        <circle cx="210" cy="210" r="188"/>
+        <circle class="live" id="bootArc" cx="210" cy="210" r="188"
+                stroke-dasharray="1181" stroke-dashoffset="1181"
+                transform="rotate(-90 210 210)"/>
+      </svg>
+      <div class="boot-mark">
+        <div class="boot-title">Atlas</div>
+        <div class="boot-sub eyebrow faint">Waking the instrument</div>
+      </div>
+    </div>
+    <div class="boot-list" id="bootList">
+      <div class="boot-line"><i class="bl-dot"></i><span class="bl-k">Audio bus</span><span class="bl-v">48 kHz · duplex</span></div>
+      <div class="boot-line"><i class="bl-dot"></i><span class="bl-k">Wake word</span><span class="bl-v">“atlas” · on device</span></div>
+      <div class="boot-line"><i class="bl-dot"></i><span class="bl-k">Voice</span><span class="bl-v">warm · 1.0×</span></div>
+      <div class="boot-line"><i class="bl-dot"></i><span class="bl-k">Eyes</span><span class="bl-v">picam 3 · wide</span></div>
+      <div class="boot-line"><i class="bl-dot"></i><span class="bl-k">Memory</span><span class="bl-v">412 things known</span></div>
+      <div class="boot-line"><i class="bl-dot"></i><span class="bl-k">Network</span><span class="bl-v">wustl-dorm · 5 ghz</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 2 IDLE — the clock is the hero ═══════════════════════════════════ -->
+<section class="screen" id="s2" data-screen="2">
+  <div class="field bleed">
+    <div class="idle-stage">
+      <svg id="idleOrbits" viewBox="0 0 1280 800" aria-hidden="true">
+        <g transform="rotate(-14 640 372)">
+          <ellipse class="orb near" cx="640" cy="372" rx="300" ry="176"/>
+          <ellipse class="orb" cx="640" cy="372" rx="404" ry="238"/>
+          <ellipse class="orb" cx="640" cy="372" rx="520" ry="306"/>
+        </g>
+        <polyline class="leader" points="344,258 318,232 62,232"/>
+        <polyline class="leader" points="903,149 934,232 1218,232"/>
+        <polyline class="leader" points="494,621 470,584 62,584"/>
+        <polyline class="leader" points="828,556 856,584 1218,584"/>
+        <circle class="body bright" cx="344" cy="258" r="4.5"/>
+        <circle class="body" cx="903" cy="149" r="4"/>
+        <circle class="body" cx="494" cy="621" r="4"/>
+        <circle class="body" cx="828" cy="556" r="4"/>
+        <g id="idleSecG"><circle id="idleSec" cx="0" cy="0" r="5.5"/></g>
+      </svg>
+
+      <div class="clock-core">
+        <div class="clock-time">
+          <span id="clkH">9</span><span class="cc" id="clkC" aria-hidden="true"><i></i><i></i></span><span id="clkM">41</span><span class="mer" id="clkMer">PM</span>
+        </div>
+        <div class="clock-hair"></div>
+        <div class="clock-date" id="clkDate">Sunday, the sixteenth of August</div>
+        <div class="clock-prompt eyebrow faint">Say “Atlas”, or touch anywhere</div>
+      </div>
+
+      <button class="sat sat-1" data-go="17">
+        <div class="sat-k eyebrow ice">Next</div>
+        <div class="sat-v">Chem 261 lab</div>
+        <div class="sat-n">Tomorrow · 2:00 PM · Louderman</div>
+      </button>
+      <button class="sat sat-2 right" data-go="13">
+        <div class="sat-k eyebrow">St. Louis</div>
+        <div class="sat-v">91°, clear</div>
+        <div class="sat-n">Feels like 98 · storms tomorrow</div>
+      </button>
+      <button class="sat sat-3" data-go="14">
+        <div class="sat-k eyebrow">Running</div>
+        <div class="sat-v" id="idleTimerV">3 timers</div>
+        <div class="sat-n" id="idleTimerN">Waffle batch · 04:32 left</div>
+      </button>
+      <button class="sat sat-4 right" data-go="28">
+        <div class="sat-k eyebrow">Campus Creamery</div>
+        <div class="sat-v">3 orders due</div>
+        <div class="sat-n">Research job running · 62%</div>
+      </button>
+    </div>
+    <div style="position:absolute;left:50%;bottom:26px;transform:translateX(-50%);display:flex;gap:10px">
+      <button class="btn ghost" id="flowBtn">Run the voice flow</button>
+      <button class="btn ghost" data-go="3">Let it sleep</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 3 DIMMED ═════════════════════════════════════════════════════════ -->
+<section class="screen" id="s3" data-screen="3">
+  <div class="field bleed">
+    <button class="dim-stage" id="dimTap" aria-label="Wake Atlas">
+      <div>
+        <div class="dim-time" id="dimTime">9:41</div>
+        <div class="dim-note eyebrow faint">Asleep · say “Atlas” or touch the glass</div>
+        <div class="dim-pulse"></div>
+      </div>
+    </button>
+  </div>
+</section>
+
+<!-- ══ 4 WAKE ═══════════════════════════════════════════════════════════ -->
+<section class="screen" id="s4" data-screen="4">
+  <div class="field bleed">
+    <div class="wake-stage">
+      <svg class="wake-rings" width="300" height="300" viewBox="0 0 300 300" aria-hidden="true">
+        <circle cx="150" cy="150" r="148"/><circle cx="150" cy="150" r="148"/><circle cx="150" cy="150" r="148"/>
+      </svg>
+      <div class="wake-core">
+        <div class="wake-word">Atlas</div>
+        <div class="wake-sub eyebrow ice">Heard you · go ahead</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 5 LISTENING ══════════════════════════════════════════════════════ -->
+<section class="screen" id="s5" data-screen="5">
+  <div class="field">
+    <div class="listen-wrap">
+      <div class="eyebrow ice">Listening</div>
+      <div class="transcript" id="transcript"></div>
+      <div class="wavebar"><canvas id="waveCanvas"></canvas></div>
+      <div class="wave-meta">
+        <div class="meta low">Mic · far field · noise floor −52 dB</div>
+        <div class="meta">Stops when you stop</div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn" data-go="6">Send it</button>
+      <button class="btn ghost" data-go="2">Never mind</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 6 THINKING ═══════════════════════════════════════════════════════ -->
+<section class="screen" id="s6" data-screen="6">
+  <div class="field bleed">
+    <div class="think-stage">
+      <svg id="spiral" width="440" height="440" viewBox="0 0 440 440" aria-hidden="true">
+        <g id="spiralSpin">
+          <path class="arm" id="arm1"/><path class="arm" id="arm2"/><path class="arm" id="arm3"/>
+          <g id="spiralPts"></g>
+        </g>
+      </svg>
+      <div class="think-core">
+        <div class="think-word">Thinking</div>
+        <div class="eyebrow faint" style="margin-top:18px">Pulling what it knows toward the question</div>
+      </div>
+      <div class="think-log" id="thinkLog">
+        <div class="think-step"><i class="ts-dot"></i><span>Reading the question back</span></div>
+        <div class="think-step"><i class="ts-dot"></i><span>Checking memory · 412 things known</span></div>
+        <div class="think-step"><i class="ts-dot"></i><span>Reaching for the forecast · NWS St. Louis</span></div>
+        <div class="think-step"><i class="ts-dot"></i><span>Reading your Tuesday delivery note</span></div>
+        <div class="think-step"><i class="ts-dot"></i><span>Writing an answer worth saying</span></div>
+      </div>
+    </div>
+    <div style="position:absolute;right:68px;bottom:64px">
+      <button class="btn" data-go="7">Skip ahead</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 7 SPEAKING ═══════════════════════════════════════════════════════ -->
+<section class="screen" id="s7" data-screen="7">
+  <div class="field">
+    <div class="eyebrow ice">Speaking</div>
+    <div class="speak-caption" id="speakCaption"></div>
+    <div class="prov-block">
+      <div class="row-between">
+        <div>
+          <div class="prov" id="speakProv" data-kind="sourced" data-count="3" data-label="Sourced"></div>
+          <div class="prov-sources" id="speakSources"></div>
+        </div>
+        <div style="display:flex;gap:10px">
+          <button class="btn" data-go="8">Show the sources</button>
+          <button class="btn ghost" data-go="2">Done</button>
+        </div>
+      </div>
+      <div class="badge-switch" id="badgeSwitch">
+        <button class="chip on" data-badge="sourced">Sourced · 3</button>
+        <button class="chip" data-badge="recalled">Recalled · 2d</button>
+        <button class="chip" data-badge="general">General knowledge</button>
+        <button class="chip" data-badge="none">No source found</button>
+        <button class="chip" data-badge="error">Tool error</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 8 QUICK ANSWER ═══════════════════════════════════════════════════ -->
+<section class="screen" id="s8" data-screen="8">
+  <div class="field">
+    <div class="eyebrow faint">Asked at 9:41 PM</div>
+    <div class="d5 ital" style="margin-top:12px;color:var(--star-3)">“Will the weather hold for the Tuesday cone delivery?”</div>
+    <div class="answer-grid" style="margin-top:30px">
+      <div style="display:flex;flex-direction:column;min-height:0">
+        <div class="d3">Tuesday holds. Eighty-four and dry until early evening, with the storm line arriving after eight — an hour past your five o’clock drop.</div>
+        <div class="excerpts">
+          <button class="excerpt lit" data-src="0">
+            <i class="ex-dot"></i>
+            <div class="ex-q">“Dry and seasonably warm Tuesday, high near 84. Storms hold off until late evening.”</div>
+            <div class="ex-m">National Weather Service · St. Louis · retrieved 4 min ago</div>
+          </button>
+          <button class="excerpt" data-src="1">
+            <i class="ex-dot"></i>
+            <div class="ex-q">“Rain chance 10 percent through 7 PM, rising to 60 percent after 9 PM.”</div>
+            <div class="ex-m">NWS hourly grid · retrieved 4 min ago</div>
+          </button>
+          <button class="excerpt" data-src="2">
+            <i class="ex-dot"></i>
+            <div class="ex-q">“Cone delivery — Tuesdays, 5 PM, back door on Skinker.”</div>
+            <div class="ex-m">Your memory · recorded 6 weeks ago</div>
+          </button>
+        </div>
+        <div class="actions">
+          <button class="btn" data-go="9">Research this properly</button>
+          <button class="btn ghost" data-go="12">Ask a follow-up</button>
+          <button class="btn ghost" data-go="2">Done</button>
+        </div>
+      </div>
+      <div>
+        <div class="eyebrow">Where this came from</div>
+        <div class="source-orrery">
+          <svg id="srcOrbits" viewBox="0 0 372 372" aria-hidden="true">
+            <ellipse cx="186" cy="186" rx="76" ry="46" transform="rotate(-16 186 186)"/>
+            <ellipse cx="186" cy="186" rx="120" ry="74" transform="rotate(-16 186 186)"/>
+            <ellipse cx="186" cy="186" rx="162" ry="100" transform="rotate(-16 186 186)"/>
+          </svg>
+          <div class="src-core">the<br>answer</div>
+          <button class="src-moon lit" data-src="0" style="left:243px;top:146px">01</button>
+          <button class="src-moon" data-src="1" style="left:146px;top:264px">02</button>
+          <button class="src-moon" data-src="2" style="left:33px;top:186px">03</button>
+        </div>
+        <div class="prov" data-kind="sourced" data-count="3" data-label="Sourced" style="margin-top:18px"></div>
+        <div class="prov-sources">
+          <span>01 · weather.gov/lsx</span>
+          <span>02 · weather.gov hourly grid</span>
+          <span>03 · atlas memory, 6 weeks old</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 9 DEEP RESEARCH ══════════════════════════════════════════════════ -->
+<section class="screen" id="s9" data-screen="9">
+  <div class="field">
+    <div class="eyebrow ice">Researching · started 4 minutes ago</div>
+    <div class="d4" style="margin-top:14px;max-width:30ch">Compare point-of-sale systems for Campus Creamery</div>
+    <div class="res-stage">
+      <svg id="resOrbit" width="440" height="360" viewBox="0 0 440 360" aria-hidden="true">
+        <ellipse class="ring" cx="220" cy="180" rx="196" ry="128" transform="rotate(-12 220 180)"/>
+        <ellipse class="prog" id="resProg" cx="220" cy="180" rx="196" ry="128"
+                 transform="rotate(-12 220 180)" stroke-dasharray="1030" stroke-dashoffset="1030"/>
+        <g id="resFound"></g>
+      </svg>
+      <div class="res-core">
+        <div class="res-pct"><span id="resPct">0</span><span style="font-size:26px;color:var(--ice-whisper)">%</span></div>
+        <div class="meta" style="margin-top:12px" id="resFoundN">0 sources found</div>
+      </div>
+      <div class="res-log" id="resLog"></div>
+    </div>
+    <div class="actions">
+      <button class="btn key" id="resOpen" disabled>Open results</button>
+      <button class="btn ghost" data-go="28">Let it run in the background</button>
+      <button class="btn ghost" data-go="2">Stop researching</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 10 RESULTS ═══════════════════════════════════════════════════════ -->
+<section class="screen" id="s10" data-screen="10">
+  <div class="field tight">
+    <div class="row-between">
+      <div>
+        <div class="eyebrow ice">Research finished · 6 minutes</div>
+        <div class="d3" style="margin-top:12px">Point-of-sale systems for Campus Creamery</div>
+      </div>
+      <div class="prov" data-kind="sourced" data-count="14" data-label="Sourced"></div>
+    </div>
+    <div class="tabs" id="resTabs">
+      <button class="tab on" data-tab="all">All <i>14</i></button>
+      <button class="tab" data-tab="square">Square <i>4</i></button>
+      <button class="tab" data-tab="toast">Toast <i>3</i></button>
+      <button class="tab" data-tab="spoton">SpotOn <i>3</i></button>
+      <button class="tab" data-tab="forum">r/icecream <i>2</i></button>
+      <button class="tab" data-tab="trade">Trade press <i>2</i></button>
+    </div>
+    <div class="cards scroll fade-b" id="resCards"></div>
+    <div class="actions">
+      <button class="btn" data-go="12">Ask a follow-up</button>
+      <button class="btn ghost" data-go="28">Back to jobs</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 11 ARTICLE READER ════════════════════════════════════════════════ -->
+<section class="screen" id="s11" data-screen="11">
+  <div class="field tight">
+    <div class="reader">
+      <div class="reader-rail">
+        <div class="rr"><div class="eyebrow">Source</div><div class="d5" id="artSrc">Square</div></div>
+        <div class="rr"><div class="eyebrow">Published</div><div class="meta low" id="artDate">11 March 2026</div></div>
+        <div class="rr"><div class="eyebrow">Retrieved</div><div class="meta low">Tonight, 9:37 PM</div></div>
+        <div class="rr"><div class="eyebrow">Reading</div><div class="meta low">About 4 minutes</div></div>
+        <div class="rule mt-s"></div>
+        <div class="prov" data-kind="sourced" data-count="1" data-label="Sourced"></div>
+      </div>
+      <div class="reader-body scroll fade-b">
+        <h1 id="artTitle">What a scoop shop actually pays per transaction</h1>
+        <p class="drop" id="artP1">Every processor quotes the same headline: two point six percent plus ten cents. The number that matters to a shop selling four-dollar cones is not the percentage — it is the fixed cent charge, because it lands on every single sale regardless of size.</p>
+        <p>At an average ticket of $4.20, ten cents of fixed cost is another 2.4 percent on top of the quoted rate. A shop doing 180 tickets on a Saturday pays $18 in flat fees before the percentage is counted. Over a St. Louis summer, the fixed leg alone runs past $1,400.</p>
+        <div class="pullquote">
+          <q>Ask for the interchange-plus sheet. If the sales rep will not send one, the blended rate is hiding something.</q>
+          <div class="pq-m meta low">Section 3 · fees you can negotiate</div>
+        </div>
+        <p>Hardware is the second trap. A countertop terminal leased at $39 a month costs more over two years than buying the same unit outright, and the lease rarely covers the card reader you will actually use at a farmers' market or a dorm-lobby pop-up.</p>
+        <p>For a shop with one register, one iPad, and a Saturday line out the door, the practical questions are narrow: does it work offline when the dorm Wi-Fi drops, does it split tips fairly across a shift, and can a new hire learn it in ten minutes without a manual.</p>
+        <p>Offline mode is where the cheap tiers fail. Two of the three systems compared here queue card payments locally and settle when the connection returns; the third refuses the sale outright, which on a 90-degree Saturday means a walked customer and a melted cone.</p>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn" data-go="10">Back to results</button>
+      <button class="btn ghost" data-go="12">Ask a follow-up</button>
+      <button class="btn ghost" id="artSave">Save to a folder</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 12 FOLLOW-UP THREAD ══════════════════════════════════════════════ -->
+<section class="screen" id="s12" data-screen="12">
+  <div class="field tight">
+    <div class="row-between" style="flex:none">
+      <div>
+        <div class="eyebrow ice">Follow-up</div>
+        <div class="d4" style="margin-top:10px">About the point-of-sale research</div>
+      </div>
+      <div class="meta low" id="threadCount">4 turns</div>
+    </div>
+    <div class="thread scroll fade-b" id="thread"></div>
+    <div class="suggests" id="suggests">
+      <button class="chip" data-ask="Which one works offline?">Which one works offline?</button>
+      <button class="chip" data-ask="What would I pay in a normal August?">What would I pay in a normal August?</button>
+      <button class="chip" data-ask="Can Carlos learn it in a shift?">Can Carlos learn it in a shift?</button>
+    </div>
+    <div class="composer">
+      <span class="eyebrow ice" style="flex:none">Ask</span>
+      <input id="askInput" type="text" placeholder="Type a follow-up, or say “Atlas, one more thing”" aria-label="Ask a follow-up">
+      <button class="btn" id="askSend">Send</button>
+    </div>
+    <div class="actionrow">
+      <button class="btn ghost" data-act="folder">Save to a folder</button>
+      <button class="btn ghost" data-act="doc">Make a document</button>
+      <button class="btn ghost" data-act="mail">Email it to me</button>
+      <div class="meta ice" id="actNote" style="opacity:0;transition:opacity 420ms"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 13 WEATHER ═══════════════════════════════════════════════════════ -->
+<section class="screen" id="s13" data-screen="13">
+  <div class="field">
+    <div class="row-between">
+      <div>
+        <div class="eyebrow ice">St. Louis · tonight</div>
+        <div class="wx-top" style="margin-top:18px">
+          <div>
+            <div class="wx-temp">91<sup>°</sup></div>
+            <div class="d5" style="margin-top:12px;color:var(--star-2)">Clear, feels like 98°</div>
+            <div class="meta low" style="margin-top:10px">Humidity 61% · wind SSW 7 mph</div>
+          </div>
+          <div class="wx-arc">
+            <svg id="wxArc" viewBox="0 0 520 186" aria-hidden="true">
+              <path class="path" d="M20 160 A 240 132 0 0 1 500 160"/>
+              <path class="lived" id="wxLived" d="M20 160 A 240 132 0 0 1 500 160" stroke-dasharray="620" stroke-dashoffset="180"/>
+              <line class="horizon" x1="0" y1="160" x2="520" y2="160"/>
+              <circle class="halo" id="wxHalo" cx="260" cy="28" r="14"/>
+              <circle class="sun" id="wxSun" cx="260" cy="28" r="6"/>
+            </svg>
+            <div style="position:absolute;left:0;bottom:-4px" class="meta">6:24 AM · rise</div>
+            <div style="position:absolute;right:0;bottom:-4px;text-align:right" class="meta">7:56 PM · set</div>
+          </div>
+        </div>
+      </div>
+      <div class="prov" data-kind="sourced" data-count="1" data-label="Sourced"></div>
+    </div>
+    <div class="wx-days">
+      <div class="wx-day">
+        <div class="eyebrow">Monday</div>
+        <div class="wx-hl"><b>94°</b><s>76°</s></div>
+        <div class="lede sm mt-s">Hot and heavy air all afternoon. A storm line crosses the metro after four — the walk to Louderman will be wet.</div>
+      </div>
+      <div class="wx-day">
+        <div class="eyebrow">Tuesday</div>
+        <div class="wx-hl"><b>84°</b><s>68°</s></div>
+        <div class="lede sm mt-s">Clearing and ten degrees kinder. Dry through your five o’clock cone delivery; rain returns after nine.</div>
+      </div>
+    </div>
+    <div class="wx-hours-wrap" style="margin-top:auto">
+      <div class="eyebrow faint">Tonight, hour by hour</div>
+      <div class="wx-hours" id="wxHours"></div>
+      <div class="wx-rule"></div>
+    </div>
+    <div class="actions">
+      <button class="btn ghost" data-go="8">Why does this matter Tuesday?</button>
+      <button class="btn ghost" data-go="2">Done</button>
+      <div class="meta low" style="margin-left:auto">National Weather Service · updated 6 minutes ago</div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 14 TIMERS ════════════════════════════════════════════════════════ -->
+<section class="screen" id="s14" data-screen="14">
+  <div class="field tight">
+    <div class="row-between" style="flex:none">
+      <div>
+        <div class="eyebrow ice">Timers</div>
+        <div class="d3" style="margin-top:12px" id="timerHead">Three running</div>
+      </div>
+      <div class="meta low">Tap a countdown to pause it</div>
+    </div>
+    <div class="timer-list scroll" id="timerList"></div>
+    <div class="actions">
+      <button class="btn" id="addTimer">Add five minutes</button>
+      <button class="btn ghost" data-go="15">Alarms</button>
+      <button class="btn ghost" data-go="2">Done</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 15 ALARMS ════════════════════════════════════════════════════════ -->
+<section class="screen" id="s15" data-screen="15">
+  <div class="field tight">
+    <div class="row-between" style="flex:none">
+      <div>
+        <div class="eyebrow ice">Alarms</div>
+        <div class="d3" style="margin-top:12px" id="alarmHead">Next: 6:40 AM, in 8 hours</div>
+      </div>
+      <div class="meta low">Tap an alarm to change it</div>
+    </div>
+    <div class="rows scroll" id="alarmList" style="margin-top:16px;flex:1;min-height:0;padding-right:14px"></div>
+    <div class="actions">
+      <button class="btn" id="addAlarm">Add an alarm</button>
+      <button class="btn ghost" data-go="14">Timers</button>
+      <button class="btn ghost" data-go="2">Done</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 16 ALARM EDITOR ══════════════════════════════════════════════════ -->
+<section class="screen" id="s16" data-screen="16">
+  <div class="field tight">
+    <div class="eyebrow ice" id="aeKicker">Editing · Creamery prep</div>
+    <div class="ae-grid" style="margin-top:22px">
+      <div>
+        <div class="ae-clock">
+          <div class="ae-unit">
+            <button class="stepper" data-step="h,1" aria-label="Later hour">
+              <svg width="18" height="10" viewBox="0 0 18 10"><path d="M1 9 L9 1 L17 9" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+            </button>
+            <div class="v" id="aeH">6</div>
+            <button class="stepper" data-step="h,-1" aria-label="Earlier hour">
+              <svg width="18" height="10" viewBox="0 0 18 10"><path d="M1 1 L9 9 L17 1" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+            </button>
+          </div>
+          <div class="ae-colon">:</div>
+          <div class="ae-unit">
+            <button class="stepper" data-step="m,5" aria-label="Later minute">
+              <svg width="18" height="10" viewBox="0 0 18 10"><path d="M1 9 L9 1 L17 9" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+            </button>
+            <div class="v" id="aeM">40</div>
+            <button class="stepper" data-step="m,-5" aria-label="Earlier minute">
+              <svg width="18" height="10" viewBox="0 0 18 10"><path d="M1 1 L9 9 L17 1" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+            </button>
+          </div>
+          <div class="ae-mer">
+            <button class="chip on" data-mer="AM">AM</button>
+            <button class="chip" data-mer="PM">PM</button>
+          </div>
+        </div>
+
+        <div style="margin-top:34px">
+          <div class="eyebrow">Repeats</div>
+          <div class="ae-days" id="aeDays">
+            <button class="ae-day" data-day="0">S</button><button class="ae-day on" data-day="1">M</button>
+            <button class="ae-day on" data-day="2">T</button><button class="ae-day on" data-day="3">W</button>
+            <button class="ae-day on" data-day="4">T</button><button class="ae-day on" data-day="5">F</button>
+            <button class="ae-day" data-day="6">S</button>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:14px">
+            <button class="chip" data-preset="weekdays">Weekdays</button>
+            <button class="chip" data-preset="weekend">Sat + Sun</button>
+            <button class="chip" data-preset="daily">Daily</button>
+          </div>
+        </div>
+
+        <div style="margin-top:34px">
+          <div class="eyebrow">Label</div>
+          <div class="fieldrow" style="padding-top:8px">
+            <input id="aeLabel" type="text" value="Creamery prep" aria-label="Alarm label">
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;min-height:0">
+        <div class="eyebrow">Sound · tap to hear it</div>
+        <div class="ae-sounds" id="aeSounds">
+          <button class="snd on" data-snd="meridian"><i class="s-mark"></i><div><div class="s-n">Meridian</div><div class="s-d">Three rising sines</div></div><div class="s-play">Play</div></button>
+          <button class="snd" data-snd="ganymede"><i class="s-mark"></i><div><div class="s-n">Ganymede</div><div class="s-d">A struck bell, long decay</div></div><div class="s-play">Play</div></button>
+          <button class="snd" data-snd="aurora"><i class="s-mark"></i><div><div class="s-n">Aurora</div><div class="s-d">Filtered air, sweeping up</div></div><div class="s-play">Play</div></button>
+          <button class="snd" data-snd="hairline"><i class="s-mark"></i><div><div class="s-n">Hairline</div><div class="s-d">Two dry ticks</div></div><div class="s-play">Play</div></button>
+          <button class="snd" data-snd="ascension"><i class="s-mark"></i><div><div class="s-n">Ascension</div><div class="s-d">A chord that swells</div></div><div class="s-play">Play</div></button>
+        </div>
+        <div class="vol">
+          <div class="eyebrow" style="flex:none">Volume</div>
+          <input id="aeVol" type="range" min="0" max="100" value="62" aria-label="Alarm volume">
+          <div class="meta" id="aeVolV" style="flex:none">62</div>
+        </div>
+        <div class="meta low" style="margin-top:16px">Previews play at this volume through the front speaker.</div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn key" id="aeSave">Save changes</button>
+      <button class="btn ghost" data-go="15">Cancel</button>
+      <button class="btn warn" id="aeDelete" style="margin-left:auto">Delete this alarm</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 17 AGENDA ════════════════════════════════════════════════════════ -->
+<section class="screen" id="s17" data-screen="17">
+  <div class="field tight">
+    <div class="row-between" style="flex:none">
+      <div>
+        <div class="eyebrow ice">Today</div>
+        <div class="d3" style="margin-top:12px">Sunday, 16 August</div>
+      </div>
+      <div class="meta low">Five things · two already behind you</div>
+    </div>
+    <div class="agenda" style="margin-top:20px">
+      <div class="day-scroll scroll fade-tb" id="dayScroll">
+        <div class="day" id="dayGrid">
+          <div class="hourline" style="top:0px"><span>6 AM</span></div>
+          <div class="hourline" style="top:46px"><span>7 AM</span></div>
+          <div class="hourline" style="top:92px"><span>8 AM</span></div>
+          <div class="hourline" style="top:138px"><span>9 AM</span></div>
+          <div class="hourline" style="top:184px"><span>10 AM</span></div>
+          <div class="hourline" style="top:230px"><span>11 AM</span></div>
+          <div class="hourline" style="top:276px"><span>Noon</span></div>
+          <div class="hourline" style="top:322px"><span>1 PM</span></div>
+          <div class="hourline" style="top:368px"><span>2 PM</span></div>
+          <div class="hourline" style="top:414px"><span>3 PM</span></div>
+          <div class="hourline" style="top:460px"><span>4 PM</span></div>
+          <div class="hourline" style="top:506px"><span>5 PM</span></div>
+          <div class="hourline" style="top:552px"><span>6 PM</span></div>
+          <div class="hourline" style="top:598px"><span>7 PM</span></div>
+          <div class="hourline" style="top:644px"><span>8 PM</span></div>
+          <div class="hourline" style="top:690px"><span>9 PM</span></div>
+          <div class="hourline" style="top:736px"><span>10 PM</span></div>
+          <div class="hourline" style="top:782px"><span>11 PM</span></div>
+          <button class="ev abs" data-h="9" style="top:138px;height:44px" data-go="18">
+            <div class="e-t">Creamery inventory count</div><div class="e-m">9:00 – 10:00 · Skinker walk-in</div></button>
+          <button class="ev abs" data-h="11.5" style="top:253px;height:44px" data-go="18">
+            <div class="e-t">Call Blue Ridge Dairy about cones</div><div class="e-m">11:30 – 12:00 · phone</div></button>
+          <button class="ev abs" data-h="14" style="top:368px;height:67px" data-go="18">
+            <div class="e-t">Bio 2960 flashcards</div><div class="e-m">2:00 – 3:30 · Olin library, floor 4</div></button>
+          <button class="ev abs" data-h="18" style="top:552px;height:44px" data-go="18">
+            <div class="e-t">Lacrosse lift</div><div class="e-m">6:00 – 7:00 · Sumers Rec</div></button>
+          <button class="ev abs" data-h="20.5" style="top:667px;height:44px" data-go="18">
+            <div class="e-t">Call Mom</div><div class="e-m">8:30 PM · she asked for Sunday</div></button>
+          <div class="nowline" id="nowLine" style="top:690px"><span class="nl-t" id="nowLabel">NOW</span></div>
+        </div>
+      </div>
+      <aside>
+        <div class="eyebrow">Tomorrow</div>
+        <div class="rows" style="margin-top:14px">
+          <div class="rowitem" style="grid-template-columns:76px 1fr;min-height:64px">
+            <div class="meta">9:00 AM</div><div class="d5" style="font-size:17px">Chem 261 section quiz</div></div>
+          <div class="rowitem" style="grid-template-columns:76px 1fr;min-height:64px">
+            <div class="meta ice">2:00 PM</div><div class="d5" style="font-size:17px">Chem 261 lab · Louderman 458</div></div>
+          <div class="rowitem" style="grid-template-columns:76px 1fr;min-height:64px">
+            <div class="meta">5:00 PM</div><div class="d5" style="font-size:17px">Cone delivery · back door</div></div>
+        </div>
+        <div class="lede sm mt-m">Tuesday stays dry until eight, so the five o’clock drop is safe.</div>
+      </aside>
+    </div>
+    <div class="actions">
+      <button class="btn" data-go="18">Add an event</button>
+      <button class="btn ghost" data-go="2">Done</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 18 EVENT EDITOR ══════════════════════════════════════════════════ -->
+<section class="screen" id="s18" data-screen="18">
+  <div class="field tight">
+    <div class="eyebrow ice">New event</div>
+    <div class="form">
+      <div style="grid-column:1/3">
+        <div class="fieldrow">
+          <div class="f-k eyebrow">Title</div>
+          <input id="evTitle" type="text" value="Chem 261 lab" aria-label="Event title">
+        </div>
+      </div>
+      <div class="fieldrow">
+        <div class="f-k eyebrow">Starts</div>
+        <div class="f-ctl">
+          <div class="d4" id="evTime" style="min-width:150px">2:00 PM</div>
+          <button class="btn ghost" data-evtime="-30">−30 min</button>
+          <button class="btn ghost" data-evtime="30">+30 min</button>
+        </div>
+      </div>
+      <div class="fieldrow">
+        <div class="f-k eyebrow">Runs for</div>
+        <div class="f-ctl">
+          <div class="d4" id="evDur" style="min-width:150px">2 hours</div>
+          <button class="btn ghost" data-evdur="-30">Shorter</button>
+          <button class="btn ghost" data-evdur="30">Longer</button>
+        </div>
+      </div>
+      <div class="fieldrow">
+        <div class="f-k eyebrow">Where</div>
+        <input id="evWhere" type="text" value="Louderman 458" aria-label="Location">
+      </div>
+      <div class="fieldrow">
+        <div class="f-k eyebrow">Repeats</div>
+        <div class="f-ctl" id="evRepeat">
+          <button class="chip" data-rep="Once">Once</button>
+          <button class="chip on" data-rep="Every Monday">Every Monday</button>
+          <button class="chip" data-rep="Every weekday">Every weekday</button>
+        </div>
+      </div>
+      <div class="fieldrow" style="grid-column:1/3">
+        <div class="f-k eyebrow">Who else</div>
+        <div class="people" id="evPeople">
+          <div class="person"><i class="p-o">PR</i><span class="p-n">Priya Raghavan</span></div>
+          <div class="person"><i class="p-o">DK</i><span class="p-n">Dev Kapoor</span></div>
+          <button class="person add" id="addPerson">Add someone</button>
+        </div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn key" id="evSave">Save changes</button>
+      <button class="btn ghost" data-go="17">Cancel</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 19 CONFIRMATION ══════════════════════════════════════════════════ -->
+<section class="screen" id="s19" data-screen="19">
+  <div class="field">
+    <div class="readback">
+      <div class="phase on" id="ev19ask">
+        <div class="eyebrow ice">Read-back · Atlas is saying this out loud</div>
+        <div class="rb-quote">“Putting <em>Chem 261 lab</em> on Monday at <em>two o’clock</em>, running <em>two hours</em>, in Louderman four fifty-eight, with Priya and Dev. Shall I save it?”</div>
+        <div class="rb-detail">
+          <div class="rd"><div class="eyebrow">When</div><b id="rbWhen">Mon 17 Aug · 2:00 – 4:00 PM</b></div>
+          <div class="rd"><div class="eyebrow">Where</div><b>Louderman 458</b></div>
+          <div class="rd"><div class="eyebrow">Repeats</div><b>Every Monday</b></div>
+          <div class="rd"><div class="eyebrow">Who else</div><b>Priya, Dev</b></div>
+        </div>
+      </div>
+      <div class="phase" id="ev19done">
+        <div class="done-mark"><i class="dm-o"><span></span></i><div class="eyebrow ice">Saved to your calendar</div></div>
+        <div class="d2">It's on Monday at two.</div>
+        <div class="lede mt-m">Atlas will speak up fifteen minutes before, and again when it's time to leave for Louderman.</div>
+      </div>
+    </div>
+    <div class="actions" id="ev19actions">
+      <button class="btn key" id="ev19confirm">Save it</button>
+      <button class="btn ghost" id="ev19edit">Change something</button>
+      <button class="btn ghost" data-go="17">Cancel</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 20 CONTACT DISAMBIGUATION ════════════════════════════════════════ -->
+<section class="screen" id="s20" data-screen="20">
+  <div class="field tight">
+    <div class="eyebrow ice">You said “text Carlos”</div>
+    <div class="d3" style="margin-top:12px;max-width:24ch">Three people answer to Carlos. Which one?</div>
+    <div class="cands">
+      <button class="cand" data-carlos="Carlos Medina" data-go="21">
+        <i class="c-orb">CM</i>
+        <div class="c-n">Carlos Medina</div>
+        <div class="c-r">Campus Creamery · closing shifts. You texted him yesterday about the freezer.</div>
+        <div class="c-l"><div class="meta ice">Text this Carlos</div></div>
+      </button>
+      <button class="cand" data-carlos="Carlos Ruiz" data-go="21">
+        <i class="c-orb">CR</i>
+        <div class="c-n">Carlos Ruiz</div>
+        <div class="c-r">Lacrosse · midfield. Last call three weeks ago, twelve minutes.</div>
+        <div class="c-l"><div class="meta ice">Text this Carlos</div></div>
+      </button>
+      <button class="cand" data-carlos="Carlos Okafor" data-go="21">
+        <i class="c-orb">CO</i>
+        <div class="c-n">Carlos Okafor</div>
+        <div class="c-r">Chem 261 group chat. Never texted one to one.</div>
+        <div class="c-l"><div class="meta ice">Text this Carlos</div></div>
+      </button>
+    </div>
+    <div class="actions">
+      <button class="btn ghost" data-go="2">None of them</button>
+      <div class="meta low" style="margin-left:auto">Ranked by how recently you talked</div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 21 MESSAGE COMPOSE + CONFIRM ═════════════════════════════════════ -->
+<section class="screen" id="s21" data-screen="21">
+  <div class="field">
+    <div class="readback">
+      <div class="phase on" id="msgAsk">
+        <div class="eyebrow ice">Read-back · text message</div>
+        <div class="rb-quote">“To <em id="msgWho">Carlos Medina</em>: <em>Can you cover four to eight on Tuesday? The cone delivery lands at five and I'm in lab until four.</em> Send it?”</div>
+        <div class="rb-detail">
+          <div class="rd"><div class="eyebrow">To</div><b id="msgWho2">Carlos Medina · (314) 555‑0148</b></div>
+          <div class="rd"><div class="eyebrow">Length</div><b>1 message · 118 characters</b></div>
+        </div>
+      </div>
+      <div class="phase" id="msgDone">
+        <div class="done-mark"><i class="dm-o"><span></span></i><div class="eyebrow ice">Sent</div></div>
+        <div class="d2">Off to Carlos.</div>
+        <div class="lede mt-m">Delivered at <span class="num" id="msgTime">9:42 PM</span>. Atlas will read his reply out loud unless you're asleep.</div>
+      </div>
+    </div>
+    <div class="actions" id="msgActions">
+      <button class="btn key" id="msgSend">Send it</button>
+      <button class="btn ghost" id="msgEdit">Change the wording</button>
+      <button class="btn ghost" data-go="20">Wrong Carlos</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 22 INBOX ═════════════════════════════════════════════════════════ -->
+<section class="screen" id="s22" data-screen="22">
+  <div class="field tight">
+    <div class="row-between" style="flex:none">
+      <div>
+        <div class="eyebrow ice">Inbox</div>
+        <div class="d3" style="margin-top:12px" id="inboxHead">Three unread since dinner</div>
+      </div>
+      <div class="meta low">james@wustl.edu · synced 2 min ago</div>
+    </div>
+    <div class="rows inbox scroll fade-b" id="inboxList"></div>
+    <div class="actions">
+      <button class="btn ghost" id="inboxAll">Mark all as read</button>
+      <button class="btn ghost" data-go="2">Done</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 23 EMAIL OPEN ════════════════════════════════════════════════════ -->
+<section class="screen" id="s23" data-screen="23">
+  <div class="field tight">
+    <div class="row-between" style="flex:none">
+      <div style="max-width:60ch">
+        <div class="eyebrow ice" id="mailFrom">Priya Raghavan · 8:12 PM</div>
+        <div class="d3" style="margin-top:12px" id="mailSubj">Cone inventory before Tuesday</div>
+      </div>
+      <button class="btn" id="summarize">Summarize this</button>
+    </div>
+    <div class="mail-body scroll" id="mailBody"></div>
+    <div class="actions">
+      <button class="btn" data-go="24">Reply with the photo</button>
+      <button class="btn ghost" data-go="22">Back to inbox</button>
+      <button class="btn ghost" id="archiveMail">Archive it</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 24 EMAIL SEND CONFIRM (with attachment) ══════════════════════════ -->
+<section class="screen" id="s24" data-screen="24">
+  <div class="field">
+    <div class="readback">
+      <div class="phase on" id="mailAsk">
+        <div class="eyebrow ice">Read-back · email with an attachment</div>
+        <div class="rb-quote">“Replying to <em>Priya Raghavan</em>, subject <em>Cone inventory before Tuesday</em>: fourteen waffle cones left, three pints of vanilla short. Photo attached — <em>freezer-shelf-2.jpg</em>, taken tonight at nine twelve. Send it?”</div>
+        <div class="attach">
+          <canvas id="attachThumb" width="224" height="156"></canvas>
+          <div>
+            <div class="at-n">freezer-shelf-2.jpg</div>
+            <div class="at-m meta low">1.4 MB · tonight, 9:12 PM · in your gallery</div>
+          </div>
+        </div>
+      </div>
+      <div class="phase" id="mailSent">
+        <div class="done-mark"><i class="dm-o"><span></span></i><div class="eyebrow ice">Sent with the photo</div></div>
+        <div class="d2">Priya has it.</div>
+        <div class="lede mt-m">Sent at <span class="num" id="mailSentTime">9:43 PM</span> with freezer-shelf-2.jpg attached. A copy is in your sent mail.</div>
+      </div>
+    </div>
+    <div class="actions" id="mailActions">
+      <button class="btn key" id="mailSend">Send it</button>
+      <button class="btn ghost" id="mailDrop">Send without the photo</button>
+      <button class="btn ghost" data-go="23">Cancel</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 25 CAMERA ════════════════════════════════════════════════════════ -->
+<section class="screen" id="s25" data-screen="25">
+  <div class="field bleed">
+    <div class="cam">
+      <canvas id="camCanvas" width="1152" height="600"></canvas>
+      <div class="cam-frame">
+        <div class="edge"></div>
+        <i class="cnr c1"></i><i class="cnr c2"></i><i class="cnr c3"></i><i class="cnr c4"></i>
+      </div>
+      <div class="rec"><i class="r-o"></i><span class="r-t">Recording · <span id="recTime">00:00</span></span></div>
+      <div class="cam-meta">
+        <div class="meta">PiCam 3 wide · 1640 × 1232</div>
+        <div class="meta low" style="margin-top:8px">The ice ring is lit whenever the camera is on</div>
+      </div>
+      <div class="cam-toast" id="camToast"><div class="meta ice">Kept as plate 07 · freezer-shelf-2.jpg</div></div>
+      <div class="cam-bar">
+        <button class="btn ghost" id="camStop">Stop recording</button>
+        <button class="shutter" id="shutter" aria-label="Take a photo"><span></span></button>
+        <button class="btn ghost" data-go="26">Open the gallery</button>
+      </div>
+      <div id="flash"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 26 GALLERY + DETAIL ══════════════════════════════════════════════ -->
+<section class="screen" id="s26" data-screen="26">
+  <div class="field tight">
+    <div class="row-between" style="flex:none">
+      <div>
+        <div class="eyebrow ice">Gallery</div>
+        <div class="d3" style="margin-top:12px" id="galHead">Six plates kept</div>
+      </div>
+      <div class="meta low">Tap a plate to read what Atlas saw</div>
+    </div>
+    <div class="gal scroll" id="gallery"></div>
+    <div class="actions">
+      <button class="btn" data-go="25">Open the camera</button>
+      <button class="btn ghost" data-go="2">Done</button>
+    </div>
+  </div>
+
+  <div class="detail" id="galDetail">
+    <div class="field tight">
+      <div class="eyebrow ice">Plate <span id="dtN">07</span></div>
+      <div class="detail-grid" style="margin-top:20px">
+        <canvas id="dtCanvas" width="960" height="600"></canvas>
+        <div>
+          <div class="d4" id="dtCap">Freezer shelf two, tonight at 9:12 PM.</div>
+          <div class="lede sm mt-m" id="dtBody">Fourteen waffle cones in the sleeve, three pints of vanilla missing from the middle rack. The door seal looks clear.</div>
+          <div class="rule mt-l"></div>
+          <div class="prov mt-m" data-kind="recalled" data-count="1" data-label="Seen by Atlas" style="margin-top:22px"></div>
+          <div class="prov-sources"><span id="dtWhen">Taken tonight, 9:12 PM · kept in memory</span></div>
+
+          <div class="phase on" id="dtKeep" style="margin-top:34px">
+            <div style="display:flex;gap:10px">
+              <button class="btn" id="dtClose">Back to the gallery</button>
+              <button class="btn warn" id="dtForget">Forget this photo</button>
+            </div>
+          </div>
+          <div class="phase" id="dtConfirm" style="margin-top:34px">
+            <div class="d5">Forget this photo?</div>
+            <div class="lede sm" style="margin-top:10px">It leaves the gallery and Atlas stops counting cones from it. This cannot be undone.</div>
+            <div style="display:flex;gap:10px;margin-top:22px">
+              <button class="btn key" id="dtForgetYes">Forget it</button>
+              <button class="btn ghost" id="dtForgetNo">Keep photo</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 27 MEMORY ════════════════════════════════════════════════════════ -->
+<section class="screen" id="s27" data-screen="27">
+  <div class="field tight">
+    <div class="row-between" style="flex:none">
+      <div>
+        <div class="eyebrow ice">Memory</div>
+        <div class="d3" style="margin-top:12px" id="memHead">Six things Atlas keeps about you</div>
+      </div>
+      <div class="meta low" style="max-width:34ch;text-align:right;line-height:1.9">Rings outward: this week · this month<br>this season · older than that</div>
+    </div>
+    <div class="mem-grid" style="margin-top:18px">
+      <div class="mem-list scroll fade-b" id="memList"></div>
+      <div class="mem-chart">
+        <svg id="memOrbits" viewBox="0 0 430 430" aria-hidden="true">
+          <ellipse cx="215" cy="215" rx="66" ry="40" transform="rotate(-12 215 215)"/>
+          <ellipse cx="215" cy="215" rx="112" ry="68" transform="rotate(-12 215 215)"/>
+          <ellipse cx="215" cy="215" rx="158" ry="96" transform="rotate(-12 215 215)"/>
+          <ellipse cx="215" cy="215" rx="204" ry="124" transform="rotate(-12 215 215)"/>
+        </svg>
+        <div class="mem-core">now</div>
+        <div id="memMoons"></div>
+      </div>
+    </div>
+    <div class="actions" id="memActions">
+      <button class="btn ghost" data-go="2">Done</button>
+      <div class="meta low" style="margin-left:auto">Atlas only keeps what you told it twice, or asked it to remember.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 28 JOBS ══════════════════════════════════════════════════════════ -->
+<section class="screen" id="s28" data-screen="28">
+  <div class="field tight">
+    <div class="row-between" style="flex:none">
+      <div>
+        <div class="eyebrow ice">Delegated work</div>
+        <div class="d3" style="margin-top:12px">One running, one waiting, one done</div>
+      </div>
+      <div class="meta low">Atlas keeps working while the screen sleeps</div>
+    </div>
+    <div class="jobs">
+      <div class="job">
+        <svg class="job-orb" viewBox="0 0 96 96" aria-hidden="true">
+          <circle class="ring" cx="48" cy="48" r="40"/>
+          <circle class="arc" id="jobArc" cx="48" cy="48" r="40" stroke-dasharray="251" stroke-dashoffset="95" transform="rotate(-90 48 48)"/>
+          <text class="ctr" x="48" y="53" id="jobPct">62</text>
+        </svg>
+        <div>
+          <div class="j-t">Compare point-of-sale systems for Campus Creamery</div>
+          <div class="j-m meta">Running · <span id="jobRead">reading 9 of 14 sources</span> · started 4 min ago</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" data-go="9">Watch it</button>
+          <button class="btn ghost" id="jobStop">Stop</button>
+        </div>
+      </div>
+      <div class="job">
+        <svg class="job-orb" viewBox="0 0 96 96" aria-hidden="true">
+          <circle class="ring" cx="48" cy="48" r="40"/>
+          <circle class="arc queued" cx="48" cy="48" r="40" stroke-dasharray="4 8"/>
+        </svg>
+        <div>
+          <div class="j-t">Meta-analysis of spaced repetition for Bio 2960</div>
+          <div class="j-m meta low">Waiting · starts when the first one finishes</div>
+        </div>
+        <div><button class="btn ghost">Move it up</button></div>
+      </div>
+      <div class="job">
+        <svg class="job-orb" viewBox="0 0 96 96" aria-hidden="true">
+          <circle class="ring" cx="48" cy="48" r="40"/>
+          <circle class="arc done" cx="48" cy="48" r="40" stroke-dasharray="251" stroke-dashoffset="0" transform="rotate(-90 48 48)"/>
+          <circle cx="48" cy="8" r="3.5" fill="#BFE3F2"/>
+        </svg>
+        <div>
+          <div class="j-t">Cheaper cone suppliers within forty miles</div>
+          <div class="j-m"><span class="prov" data-kind="sourced" data-count="6" data-label="Sourced"></span></div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" data-go="10">Open the result</button>
+          <button class="btn ghost" data-go="12">Ask about it</button>
+        </div>
+      </div>
+      <div class="away">
+        <div class="eyebrow">While you were away</div>
+        <div class="away-list">
+          <div class="aw"><div class="meta low">7:58 PM</div><b>Carlos said he can cover Tuesday four to eight.</b></div>
+          <div class="aw"><div class="meta low">8:12 PM</div><b>Priya asked for the cone count before Tuesday.</b></div>
+          <div class="aw"><div class="meta low">8:40 PM</div><b>Blue Ridge Dairy answered: cones are back in stock Thursday.</b></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 29 MUTED ═════════════════════════════════════════════════════════ -->
+<section class="screen" id="s29" data-screen="29">
+  <div class="field bleed">
+    <div class="center-stage">
+      <div>
+        <svg class="big-glyph" width="150" height="150" viewBox="0 0 150 150" aria-hidden="true">
+          <ellipse class="ring" cx="75" cy="75" rx="70" ry="42" transform="rotate(-18 75 75)"/>
+          <ellipse class="ring" cx="75" cy="75" rx="44" ry="26" transform="rotate(-18 75 75)"/>
+          <circle class="body" cx="75" cy="75" r="7"/>
+          <line class="slash" x1="22" y1="128" x2="128" y2="22"/>
+        </svg>
+        <div class="d2">The microphone is off.</div>
+        <div class="lede">Atlas cannot hear the wake word or anything else. Timers keep counting, alarms still ring, and the screen still works by touch.</div>
+        <div class="center-actions">
+          <button class="btn key" id="unmuteBtn">Turn the microphone on</button>
+          <button class="btn ghost" data-go="14">Check the timers</button>
+        </div>
+        <div class="meta low" style="margin-top:34px">Muted at 9:36 PM from the switch on the left edge</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 30 OFFLINE ═══════════════════════════════════════════════════════ -->
+<section class="screen" id="s30" data-screen="30">
+  <div class="field bleed">
+    <div class="center-stage">
+      <div>
+        <svg class="big-glyph" width="150" height="150" viewBox="0 0 150 150" aria-hidden="true">
+          <ellipse class="ring" cx="75" cy="75" rx="70" ry="42" transform="rotate(-18 75 75)" stroke-dasharray="6 9"/>
+          <ellipse class="ring" cx="75" cy="75" rx="44" ry="26" transform="rotate(-18 75 75)" stroke-dasharray="6 9"/>
+          <circle class="body ice" cx="75" cy="75" r="7"/>
+          <circle class="body" cx="141" cy="52" r="4"/>
+        </svg>
+        <div class="d2">No network since 9:14&nbsp;PM.</div>
+        <div class="lede">The dorm access point stopped answering — not the internet itself, and not Atlas. Answers, mail and research need the network back. Timers, alarms, photos and the calendar you already have all still work.</div>
+        <div class="center-actions">
+          <button class="btn key" id="retryBtn">Try the network again</button>
+          <button class="btn ghost" data-go="31">See what’s still live</button>
+        </div>
+        <div class="retry-log meta low" id="retryLog">Last tried 40 seconds ago · wustl-dorm, 5 GHz</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 31 HEALTH ════════════════════════════════════════════════════════ -->
+<section class="screen" id="s31" data-screen="31">
+  <div class="field tight">
+    <div class="row-between" style="flex:none">
+      <div>
+        <div class="eyebrow ice">Health</div>
+        <div class="d3" style="margin-top:12px">Eight of ten services answering</div>
+      </div>
+      <div class="meta low">Checked 40 seconds ago</div>
+    </div>
+    <div class="caps">
+      <div class="cap"><i class="c-o"></i><div class="c-n">Wake word</div><div class="c-s">On device · 0.4% CPU</div></div>
+      <div class="cap"><i class="c-o"></i><div class="c-n">Hearing</div><div class="c-s">Deepgram · 180 ms</div></div>
+      <div class="cap"><i class="c-o"></i><div class="c-n">Voice</div><div class="c-s">Cartesia · warm</div></div>
+      <div class="cap"><i class="c-o"></i><div class="c-n">Thinking</div><div class="c-s">Claude · key valid</div></div>
+      <div class="cap"><i class="c-o"></i><div class="c-n">Weather</div><div class="c-s">NWS · no key needed</div></div>
+      <div class="cap"><i class="c-o"></i><div class="c-n">Calendar</div><div class="c-s">Google · james@wustl</div></div>
+      <div class="cap"><i class="c-o"></i><div class="c-n">Mail</div><div class="c-s">Gmail · read and send</div></div>
+      <div class="cap"><i class="c-o"></i><div class="c-n">Eyes</div><div class="c-s">PiCam 3 · wide</div></div>
+      <div class="cap degraded"><i class="c-o"></i><div class="c-n">Search</div><div class="c-s">Brave · 82% of quota used</div></div>
+      <div class="cap off"><i class="c-o"></i><div class="c-n">Texting</div><div class="c-s">No number connected</div></div>
+    </div>
+    <div style="margin-top:44px;display:grid;grid-template-columns:1fr 1fr;gap:0 56px;max-width:980px">
+      <div>
+        <div class="eyebrow ice">Needs a decision from you</div>
+        <div class="d5 mt-s">Search is nearly out of quota.</div>
+        <div class="lede sm" style="margin-top:8px">Eighty-two percent of this month’s Brave searches are used. It resets on the first. Until then Atlas will say when it could not look something up rather than guessing.</div>
+      </div>
+      <div>
+        <div class="eyebrow ice">Not connected</div>
+        <div class="d5 mt-s">Texting has no number.</div>
+        <div class="lede sm" style="margin-top:8px">Add a number in the Atlas app and “text Carlos” will start working. Everything else on this list is live and answering.</div>
+      </div>
+    </div>
+    <div class="vitals">
+      <div class="vital"><div class="eyebrow">Awake for</div><b>11 days</b></div>
+      <div class="vital"><div class="eyebrow">Processor</div><b>61°C</b></div>
+      <div class="vital"><div class="eyebrow">Memory kept</div><b>412 notes</b></div>
+      <div class="vital"><div class="eyebrow">Heard today</div><b>34 asks</b></div>
+      <div class="vital" style="margin-left:auto;justify-content:flex-end">
+        <button class="btn" data-go="30">Network trouble?</button>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+    <div id="orrery" aria-hidden="true">
+      <div class="o-head">
+        <div class="eyebrow ice">The orrery</div>
+        <div class="d3" style="margin-top:14px">Every screen, in orbit</div>
+      </div>
+      <svg id="orreryRings" viewBox="0 0 1280 800" aria-hidden="true">
+        <ellipse cx="640" cy="424" rx="172" ry="106" transform="rotate(-10 640 424)"/>
+        <ellipse cx="640" cy="424" rx="286" ry="174" transform="rotate(-10 640 424)"/>
+        <ellipse cx="640" cy="424" rx="404" ry="246" transform="rotate(-10 640 424)"/>
+        <ellipse cx="640" cy="424" rx="524" ry="318" transform="rotate(-10 640 424)"/>
+        <circle cx="640" cy="424" r="3" fill="#BFE3F2"/>
+      </svg>
+      <div id="moons"></div>
+      <div class="o-legend">
+        <div><b>I</b>States of the voice</div>
+        <div><b>II</b>Knowledge &amp; weather</div>
+        <div><b>III</b>Time, calendar, people</div>
+        <div><b>IV</b>Vision, mind, system</div>
+      </div>
+      <div class="o-foot">
+        <button class="btn" id="flowBtn2"><span class="dot"></span>Run the voice flow</button>
+        <div class="meta low">31 screens · arrow keys step · esc closes</div>
+      </div>
+      <button class="btn ghost o-close" id="orreryClose">Close</button>
+    </div>
+
+  </div>
+</div>
+<script>
+(function(){
+'use strict';
+var $=function(s,r){return (r||document).querySelector(s);};
+var $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s));};
+var RM=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+var stage=$('#stage');
+var D2R=Math.PI/180;
+
+/* ── the stage always shows at 1280×800, letterboxed on black ───────────── */
+function fit(){
+  var s=Math.min(window.innerWidth/1280, window.innerHeight/800);
+  stage.style.transform='translate(-50%,-50%) scale('+s+')';
+}
+window.addEventListener('resize',fit); fit();
+
+/* ── deterministic noise ────────────────────────────────────────────────── */
+function rng(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+/* ── starfield: three layers, drawn once, parallaxed by transform ───────── */
+var layerEls=[$('#sl1'),$('#sl2'),$('#sl3')];
+(function stars(){
+  var spec=[{n:170,r:[.35,.7],a:[.08,.26]},{n:78,r:[.5,1.0],a:[.14,.38]},{n:26,r:[.8,1.5],a:[.26,.62]}];
+  for(var i=0;i<3;i++){
+    var cv=layerEls[i].querySelector('canvas'), c=cv.getContext('2d'), R=rng(9001+i*77);
+    c.clearRect(0,0,cv.width,cv.height);
+    for(var k=0;k<spec[i].n;k++){
+      var x=R()*cv.width, y=R()*cv.height;
+      var rad=spec[i].r[0]+R()*(spec[i].r[1]-spec[i].r[0]);
+      var al=spec[i].a[0]+R()*(spec[i].a[1]-spec[i].a[0]);
+      c.beginPath(); c.arc(x,y,rad,0,6.2832);
+      c.fillStyle=(R()>.78?'rgba(191,227,242,':'rgba(243,237,228,')+al.toFixed(3)+')';
+      c.fill();
+    }
+  }
+})();
+function parallax(n){
+  var kx=((n%7)-3), ky=((n%5)-2), d=[4,9,16];
+  for(var i=0;i<3;i++) layerEls[i].style.transform='translate3d('+(-kx*d[i]/3).toFixed(1)+'px,'+(-ky*d[i]/4).toFixed(1)+'px,0)';
+}
+
+/* ── provenance marks: built from data attributes, used everywhere ──────── */
+function provSVG(kind,count){
+  var dots='', i, n=Math.min(parseInt(count,10)||0,4);
+  var pos=[[28.2,10],[15,2.2],[1.8,10],[15,17.8]];
+  if(kind==='sourced'||kind==='recalled'){
+    for(i=0;i<Math.max(n,1);i++) dots+='<circle class="p-body" cx="'+pos[i][0]+'" cy="'+pos[i][1]+'" r="'+(kind==='recalled'?2:2.3)+'"/>';
+  } else if(kind==='general'){ dots='<circle class="p-body" cx="15" cy="10" r="1.6"/>'; }
+  else if(kind==='none'){ dots='<line x1="6" y1="16" x2="24" y2="4" stroke="rgba(243,237,228,.26)" stroke-width="1"/>'; }
+  else if(kind==='error'){ dots='<circle class="p-body" cx="27" cy="3.5" r="2.3"/>'; }
+  return '<svg class="prov-mark" width="30" height="20" viewBox="0 0 30 20" aria-hidden="true">'+
+    '<ellipse class="p-orbit" cx="15" cy="10" rx="13.2" ry="7.4" transform="rotate(-16 15 10)"/>'+dots+'</svg>';
+}
+function buildProv(el){
+  var kind=el.getAttribute('data-kind')||'sourced';
+  var label=el.getAttribute('data-label')||kind;
+  var count=el.getAttribute('data-count');
+  el.innerHTML=provSVG(kind,count)+'<span class="prov-text">'+label+(count?' <s>· '+count+'</s>':'')+'</span>';
+}
+function refreshProv(root){ $$('.prov',root||document).forEach(buildProv); }
+
+/* ── screens ────────────────────────────────────────────────────────────── */
+var SCREENS=[
+  {n:1,label:'Boot'},{n:2,label:'Idle'},{n:3,label:'Dimmed'},{n:4,label:'Wake'},
+  {n:5,label:'Listening'},{n:6,label:'Thinking'},{n:7,label:'Speaking'},
+  {n:8,label:'Answer'},{n:9,label:'Research'},{n:10,label:'Results'},{n:11,label:'Article'},{n:12,label:'Follow-up'},
+  {n:13,label:'Weather'},
+  {n:14,label:'Timers'},{n:15,label:'Alarms'},{n:16,label:'Alarm editor'},
+  {n:17,label:'Agenda'},{n:18,label:'Event'},{n:19,label:'Confirm'},
+  {n:20,label:'Contacts'},{n:21,label:'Message'},{n:22,label:'Inbox'},{n:23,label:'Email'},{n:24,label:'Send mail'},
+  {n:25,label:'Camera'},{n:26,label:'Gallery'},
+  {n:27,label:'Memory'},{n:28,label:'Jobs'},
+  {n:29,label:'Muted'},{n:30,label:'Offline'},{n:31,label:'Health'}
+];
+var LABEL={}; SCREENS.forEach(function(s){LABEL[s.n]=s.label;});
+var VEILED={1:1,3:1,4:1};
+var ENTER={}, EXIT={}, current=0;
+
+function updateChrome(n){
+  $('#chromeLabel').innerHTML='№ '+(n<10?'0':'')+n+' · <b>'+LABEL[n]+'</b>';
+  $('#chrome').classList.toggle('veiled',!!VEILED[n]);
+}
+function go(n,o){
+  o=o||{};
+  if(!o.flow) cancelFlow();
+  var el=document.getElementById('s'+n); if(!el) return;
+  if(current && current!==n){
+    var prev=document.getElementById('s'+current);
+    if(prev){ prev.classList.remove('active'); prev.classList.add('leaving');
+      (function(p){setTimeout(function(){p.classList.remove('leaving');},760);})(prev); }
+    if(EXIT[current]) EXIT[current]();
+  }
+  current=n; el.classList.add('active');
+  updateChrome(n); parallax(n); closeOrrery();
+  if(ENTER[n]) ENTER[n]();
+}
+stage.addEventListener('click',function(e){
+  var t=e.target.closest('[data-go]');
+  if(t){ go(parseInt(t.getAttribute('data-go'),10)); }
+});
+
+/* ── the orrery: every screen as a moon ─────────────────────────────────── */
+var ORB=[{rx:172,ry:106},{rx:286,ry:174},{rx:404,ry:246},{rx:524,ry:318}];
+var CX=640, CY=424, PHI=-10*D2R;
+var PLACE=[
+  {o:0,ids:[1,2,3,4,5,6,7],ang:[250,301,353,44,96,147,199]},
+  {o:1,ids:[8,9,10,11,12],ang:[160,200,240,280,320]},
+  {o:1,ids:[13],ang:[40]},
+  {o:2,ids:[14,15,16],ang:[175,205,235]},
+  {o:2,ids:[17,18,19],ang:[270,300,330]},
+  {o:2,ids:[20,21,22,23,24],ang:[10,40,70,100,130]},
+  {o:3,ids:[25,26],ang:[200,235]},
+  {o:3,ids:[27,28],ang:[280,320]},
+  {o:3,ids:[29,30,31],ang:[10,50,90]}
+];
+function orbPoint(o,deg){
+  var t=deg*D2R, rx=ORB[o].rx, ry=ORB[o].ry;
+  return {x:CX+rx*Math.cos(t)*Math.cos(PHI)-ry*Math.sin(t)*Math.sin(PHI),
+          y:CY+rx*Math.cos(t)*Math.sin(PHI)+ry*Math.sin(t)*Math.cos(PHI)};
+}
+(function buildMoons(){
+  var host=$('#moons'), order=0;
+  PLACE.forEach(function(grp){
+    grp.ids.forEach(function(id,i){
+      var p=orbPoint(grp.o,grp.ang[i]);
+      var b=document.createElement('button');
+      b.className='moon'; b.setAttribute('data-moon',id);
+      b.style.left=p.x.toFixed(1)+'px'; b.style.top=p.y.toFixed(1)+'px';
+      b.style.transitionDelay=(order*22)+'ms';
+      var txt=LABEL[id], w=txt.length*6.4+10, side;
+      if(p.x>CX) side=(p.x+60+w>1266)?(p.y>CY?'t':'b'):'r';
+      else side=(p.x-60-w<14)?(p.y>CY?'t':'b'):'l';
+      b.innerHTML=(id<10?'0':'')+id+'<span class="moon-label '+side+'">'+txt+'</span>';
+      b.addEventListener('click',function(){ go(id); });
+      host.appendChild(b); order++;
+    });
+  });
+})();
+function openOrrery(){
+  $('#orrery').classList.add('open'); $('#orrery').setAttribute('aria-hidden','false');
+  $$('.moon').forEach(function(m){ m.classList.toggle('here', parseInt(m.getAttribute('data-moon'),10)===current); });
+}
+function closeOrrery(){ $('#orrery').classList.remove('open'); $('#orrery').setAttribute('aria-hidden','true'); }
+$('#navBtn').addEventListener('click',function(){ $('#orrery').classList.contains('open')?closeOrrery():openOrrery(); });
+$('#orreryClose').addEventListener('click',closeOrrery);
+document.addEventListener('keydown',function(e){
+  var tag=(e.target&&e.target.tagName||'').toLowerCase();
+  if(tag==='input'||tag==='textarea'){ if(e.key==='Escape') e.target.blur(); return; }
+  if(e.key==='Escape'){ closeOrrery(); }
+  else if(e.key==='n'||e.key==='N'){ openOrrery(); }
+  else if(e.key==='ArrowRight'||e.key===']'){ go(Math.min(31,current+1)); }
+  else if(e.key==='ArrowLeft'||e.key==='['){ go(Math.max(1,current-1)); }
+});
+
+/* ── audio: five synthesized alarm voices ───────────────────────────────── */
+var actx=null;
+function audio(){
+  if(!actx){ var AC=window.AudioContext||window.webkitAudioContext; if(!AC) return null; actx=new AC(); }
+  if(actx.state==='suspended') actx.resume();
+  return actx;
+}
+function tone(ctx,out,type,f,t0,dur,peak){
+  var o=ctx.createOscillator(), g=ctx.createGain();
+  o.type=type; o.frequency.setValueAtTime(f,t0);
+  g.gain.setValueAtTime(.0001,t0);
+  g.gain.exponentialRampToValueAtTime(peak,t0+.012);
+  g.gain.exponentialRampToValueAtTime(.0001,t0+dur);
+  o.connect(g); g.connect(out); o.start(t0); o.stop(t0+dur+.05);
+}
+function playSound(name,vol){
+  var ctx=audio(); if(!ctx) return;
+  var out=ctx.createGain(); out.gain.value=Math.max(0,Math.min(1,(vol==null?62:vol)/100))*0.5;
+  out.connect(ctx.destination);
+  var t=ctx.currentTime+.02, i;
+  if(name==='meridian'){
+    [784,1046.5,1318.5].forEach(function(f,k){ tone(ctx,out,'sine',f,t+k*.15,.55,.5); });
+  } else if(name==='ganymede'){
+    var car=ctx.createOscillator(), mod=ctx.createOscillator(), mg=ctx.createGain(), g=ctx.createGain();
+    car.type='sine'; car.frequency.value=523.25; mod.type='sine'; mod.frequency.value=523.25*1.414;
+    mg.gain.setValueAtTime(900,t); mg.gain.exponentialRampToValueAtTime(1,t+1.6);
+    mod.connect(mg); mg.connect(car.frequency);
+    g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(.55,t+.01);
+    g.gain.exponentialRampToValueAtTime(.0001,t+2.4);
+    car.connect(g); g.connect(out); mod.start(t); car.start(t); mod.stop(t+2.5); car.stop(t+2.5);
+  } else if(name==='aurora'){
+    var len=Math.floor(ctx.sampleRate*1.3), buf=ctx.createBuffer(1,len,ctx.sampleRate), d=buf.getChannelData(0);
+    for(i=0;i<len;i++) d[i]=(Math.random()*2-1)*.7;
+    var src=ctx.createBufferSource(); src.buffer=buf;
+    var bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.Q.value=7;
+    bp.frequency.setValueAtTime(320,t); bp.frequency.exponentialRampToValueAtTime(3400,t+1.1);
+    var g2=ctx.createGain(); g2.gain.setValueAtTime(.0001,t);
+    g2.gain.exponentialRampToValueAtTime(.7,t+.28); g2.gain.exponentialRampToValueAtTime(.0001,t+1.28);
+    src.connect(bp); bp.connect(g2); g2.connect(out); src.start(t); src.stop(t+1.3);
+  } else if(name==='hairline'){
+    tone(ctx,out,'square',1200,t,.055,.28); tone(ctx,out,'square',1620,t+.1,.055,.24);
+  } else if(name==='ascension'){
+    [329.6,440,554.4].forEach(function(f){
+      var o=ctx.createOscillator(), g=ctx.createGain();
+      o.type='sine'; o.frequency.value=f;
+      g.gain.setValueAtTime(.0001,t); g.gain.linearRampToValueAtTime(.26,t+.9);
+      g.gain.linearRampToValueAtTime(.24,t+1.3); g.gain.exponentialRampToValueAtTime(.0001,t+2.5);
+      o.connect(g); g.connect(out); o.start(t); o.stop(t+2.6);
+    });
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   1 — BOOT
+   ═══════════════════════════════════════════════════════════════════════ */
+var bootTimers=[];
+ENTER[1]=function(){
+  var lines=$$('.boot-line'); lines.forEach(function(l){l.classList.remove('on');});
+  var arc=$('#bootArc'); arc.style.transition='none'; arc.setAttribute('stroke-dashoffset','1181');
+  bootTimers.forEach(clearTimeout); bootTimers=[];
+  bootTimers.push(setTimeout(function(){ arc.style.transition=''; arc.setAttribute('stroke-dashoffset','0'); },60));
+  lines.forEach(function(l,i){ bootTimers.push(setTimeout(function(){ l.classList.add('on'); },220+i*380)); });
+  bootTimers.push(setTimeout(function(){ if(current===1) go(2); },3400));
+};
+EXIT[1]=function(){ bootTimers.forEach(clearTimeout); bootTimers=[]; };
+
+/* ════════════════════════════════════════════════════════════════════════
+   2 — IDLE: the clock
+   ═══════════════════════════════════════════════════════════════════════ */
+var MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+var DAYS=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+var ORD=['','first','second','third','fourth','fifth','sixth','seventh','eighth','ninth','tenth','eleventh','twelfth',
+'thirteenth','fourteenth','fifteenth','sixteenth','seventeenth','eighteenth','nineteenth','twentieth','twenty-first',
+'twenty-second','twenty-third','twenty-fourth','twenty-fifth','twenty-sixth','twenty-seventh','twenty-eighth',
+'twenty-ninth','thirtieth','thirty-first'];
+function pad(n){return (n<10?'0':'')+n;}
+function clockTick(){
+  var d=new Date(), h=d.getHours(), m=d.getMinutes(), s=d.getSeconds();
+  var h12=h%12||12;
+  $('#clkH').textContent=h12; $('#clkM').textContent=pad(m);
+  $('#clkMer').textContent=h<12?'AM':'PM';
+  $('#clkC').classList.toggle('dim',s%2===1);
+  $('#clkDate').textContent=DAYS[d.getDay()]+', the '+ORD[d.getDate()]+' of '+MONTHS[d.getMonth()];
+  $('#dimTime').textContent=h12+':'+pad(m);
+  var t=(-90+(s+d.getMilliseconds()/1000)*6)*D2R;
+  var rx=300, ry=176, ph=-14*D2R;
+  var x=640+rx*Math.cos(t)*Math.cos(ph)-ry*Math.sin(t)*Math.sin(ph);
+  var y=372+rx*Math.cos(t)*Math.sin(ph)+ry*Math.sin(t)*Math.cos(ph);
+  $('#idleSecG').setAttribute('transform','translate('+x.toFixed(1)+','+y.toFixed(1)+')');
+}
+setInterval(clockTick, RM?1000:200); clockTick();
+$('#dimTap').addEventListener('click',function(){ runFlow(); });
+$('.idle-stage').addEventListener('click',function(e){
+  if(e.target.closest('.sat')||e.target.closest('.btn')) return;
+  runFlow();
+});
+
+/* ── the voice flow: idle → wake → listening → thinking → speaking → idle ─ */
+var flowT=[], flowOn=false;
+function cancelFlow(){ flowT.forEach(clearTimeout); flowT=[]; flowOn=false; }
+function step(ms,fn){ flowT.push(setTimeout(fn,ms)); }
+function runFlow(){
+  cancelFlow(); flowOn=true;
+  go(4,{flow:true});
+  step(1500,function(){ go(5,{flow:true}); });
+  step(6200,function(){ go(6,{flow:true}); });
+  step(10200,function(){ go(7,{flow:true}); });
+  step(17800,function(){ go(2,{flow:true}); });
+}
+$('#flowBtn').addEventListener('click',runFlow);
+$('#flowBtn2').addEventListener('click',function(){ closeOrrery(); runFlow(); });
+
+/* ════════════════════════════════════════════════════════════════════════
+   5 — LISTENING: waveform + live transcript
+   ═══════════════════════════════════════════════════════════════════════ */
+var WORDS='Will the weather hold for the Tuesday cone delivery'.split(' ');
+var listenRAF=null, listenT=[], speech=0;
+function waveSetup(){
+  var cv=$('#waveCanvas'), r=cv.getBoundingClientRect();
+  var dpr=Math.min(window.devicePixelRatio||1,2);
+  cv.width=Math.max(320,Math.round((r.width||1144)*dpr));
+  cv.height=Math.round((r.height||96)*dpr);
+  return cv;
+}
+ENTER[5]=function(){
+  var host=$('#transcript'); host.innerHTML='';
+  listenT.forEach(clearTimeout); listenT=[];
+  speech=0;
+  WORDS.forEach(function(w,i){
+    listenT.push(setTimeout(function(){
+      var prev=host.querySelector('.w.interim'); if(prev){ prev.className='w said'; }
+      $$('.w.fresh',host).forEach(function(e){e.className='w said';});
+      var sp=document.createElement('span');
+      sp.className='w interim'; sp.textContent=w+' ';
+      host.appendChild(sp);
+      speech=1;
+      if(i===WORDS.length-1){
+        listenT.push(setTimeout(function(){ sp.className='w fresh'; sp.textContent=w+'?'; speech=.2; },420));
+      }
+    },320+i*300));
+  });
+  var cv=waveSetup(), c=cv.getContext('2d'), t0=performance.now();
+  function frame(now){
+    var W=cv.width,H=cv.height,mid=H/2,bars=128,gap=Math.max(2,W/bars*0.66),bw=Math.max(1,W/bars-gap);
+    c.clearRect(0,0,W,H);
+    var el=(now-t0)/1000;
+    for(var i=0;i<bars;i++){
+      var f=i/bars;
+      var env=Math.sin(f*Math.PI);
+      var a=Math.sin(el*5.1+f*11.0)*0.5+Math.sin(el*8.7+f*23.0)*0.28+Math.sin(el*2.3+f*4.0)*0.34;
+      var amp=Math.abs(a)*env*(0.16+speech*0.94);
+      if(RM) amp=env*0.22;
+      var h=Math.max(bw*0.9,amp*mid*2.0);
+      var alpha=0.22+amp*0.9;
+      c.fillStyle='rgba(191,227,242,'+Math.min(alpha,.95).toFixed(3)+')';
+      c.fillRect(i*(bw+gap),mid-h/2,bw,h);
+    }
+    c.fillStyle='rgba(191,227,242,.14)'; c.fillRect(0,mid-0.5,W,1);
+    listenRAF=requestAnimationFrame(frame);
+  }
+  if(listenRAF) cancelAnimationFrame(listenRAF);
+  listenRAF=requestAnimationFrame(frame);
+};
+EXIT[5]=function(){ if(listenRAF) cancelAnimationFrame(listenRAF); listenRAF=null; listenT.forEach(clearTimeout); listenT=[]; };
+
+/* ════════════════════════════════════════════════════════════════════════
+   6 — THINKING: a gravitational spiral
+   ═══════════════════════════════════════════════════════════════════════ */
+(function spiral(){
+  var arms=['#arm1','#arm2','#arm3'], pts=$('#spiralPts'), html='';
+  for(var a=0;a<3;a++){
+    var d='', off=a*120;
+    for(var i=0;i<=110;i++){
+      var th=(i/110)*Math.PI*2.4+off*D2R, r=14+ (i/110)*(i/110)*196;
+      var x=220+r*Math.cos(th), y=220+r*Math.sin(th)*0.62;
+      d+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)+' ';
+      if(i%22===0&&i>0) html+='<circle class="pt" cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+(1.2+i/110*2).toFixed(1)+'" opacity="'+(0.25+i/110*0.6).toFixed(2)+'"/>';
+    }
+    $(arms[a]).setAttribute('d',d);
+  }
+  pts.innerHTML=html;
+})();
+var thinkT=[];
+ENTER[6]=function(){
+  var steps=$$('.think-step');
+  steps.forEach(function(s){ s.classList.remove('on','done'); });
+  thinkT.forEach(clearTimeout); thinkT=[];
+  steps.forEach(function(s,i){
+    thinkT.push(setTimeout(function(){
+      s.classList.add('on');
+      if(i>0) steps[i-1].classList.add('done');
+    },160+i*620));
+  });
+};
+EXIT[6]=function(){ thinkT.forEach(clearTimeout); thinkT=[]; };
+
+/* ════════════════════════════════════════════════════════════════════════
+   7 — SPEAKING: streaming caption + the five provenance badges
+   ═══════════════════════════════════════════════════════════════════════ */
+var BADGES={
+  sourced:{kind:'sourced',label:'Sourced',count:'3',
+    text:'Tuesday holds. Eighty-four and dry until early evening, with the storm line arriving after eight — an hour past your five o’clock drop.',
+    src:['01 · weather.gov/lsx · retrieved 4 min ago','02 · NWS hourly grid · retrieved 4 min ago','03 · your memory · recorded 6 weeks ago']},
+  recalled:{kind:'recalled',label:'Recalled',count:'2d',
+    text:'You told me on Thursday that the cone delivery moved to five o’clock, and that Carlos closes on Tuesdays.',
+    src:['Your memory · recorded 2 days ago','Said out loud, Thursday 6:12 PM']},
+  general:{kind:'general',label:'General knowledge',count:'',
+    text:'Ice cream scoops cleanly around ten degrees Fahrenheit. Colder than that and it tears; warmer and it slumps in the case.',
+    src:['Nothing looked up. This is general knowledge, so check it before you buy a freezer.']},
+  none:{kind:'none',label:'No source found',count:'',
+    text:'I could not find anything solid about foot traffic on the Loop on Tuesday nights. I am not going to make a number up.',
+    src:['Searched 6 places · nothing worth repeating','Ask again after the weekend, or tell me a number to keep']},
+  error:{kind:'error',label:'Tool error',count:'',
+    text:'The weather service did not answer just now, so I do not have tomorrow’s forecast. I will try again in a minute and tell you then.',
+    src:['weather.gov timed out after 8 seconds','Nothing was returned, so nothing is being said as fact']}
+};
+var speakT=[];
+function streamCaption(key){
+  var b=BADGES[key], host=$('#speakCaption');
+  speakT.forEach(clearTimeout); speakT=[];
+  host.innerHTML=b.text.split(' ').map(function(w){return '<span class="w">'+w+' </span>';}).join('');
+  var ws=$$('.w',host);
+  ws.forEach(function(w,i){ speakT.push(setTimeout(function(){ w.classList.add('on'); }, RM?0:i*58)); });
+  var p=$('#speakProv');
+  p.setAttribute('data-kind',b.kind); p.setAttribute('data-label',b.label);
+  if(b.count) p.setAttribute('data-count',b.count); else p.removeAttribute('data-count');
+  buildProv(p);
+  $('#speakSources').innerHTML=b.src.map(function(s){return '<span>'+s+'</span>';}).join('');
+}
+ENTER[7]=function(){
+  var on=$('#badgeSwitch .chip.on');
+  streamCaption(on?on.getAttribute('data-badge'):'sourced');
+};
+EXIT[7]=function(){ speakT.forEach(clearTimeout); speakT=[]; };
+$('#badgeSwitch').addEventListener('click',function(e){
+  var c=e.target.closest('.chip'); if(!c) return;
+  $$('#badgeSwitch .chip').forEach(function(x){x.classList.remove('on');});
+  c.classList.add('on'); streamCaption(c.getAttribute('data-badge'));
+});
+
+/* ════════════════════════════════════════════════════════════════════════
+   8 — QUICK ANSWER: sources in orbit
+   ═══════════════════════════════════════════════════════════════════════ */
+$('#s8').addEventListener('click',function(e){
+  var t=e.target.closest('[data-src]'); if(!t) return;
+  var id=t.getAttribute('data-src');
+  $$('#s8 [data-src]').forEach(function(x){ x.classList.toggle('lit', x.getAttribute('data-src')===id); });
+});
+
+/* ════════════════════════════════════════════════════════════════════════
+   9 — DEEP RESEARCH
+   ═══════════════════════════════════════════════════════════════════════ */
+var RESLOG=['Reading Square pricing pages','Pulling Toast fee schedule','Checking SpotOn hardware leases',
+ 'Reading r/icecream on offline mode','Comparing card-present rates','Checking two trade reports',
+ 'Weighing tip splitting across shifts','Writing what it means for a 4-dollar cone'];
+var resInt=null;
+(function resDots(){
+  var g=$('#resFound'), html='';
+  for(var i=0;i<14;i++){
+    var t=(i/14)*360*D2R, rx=196, ry=128, ph=-12*D2R;
+    var x=220+rx*Math.cos(t)*Math.cos(ph)-ry*Math.sin(t)*Math.sin(ph);
+    var y=180+rx*Math.cos(t)*Math.sin(ph)+ry*Math.sin(t)*Math.cos(ph);
+    html+='<circle class="found" cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="3.4"/>';
+  }
+  g.innerHTML=html;
+})();
+ENTER[9]=function(){
+  if(resInt) clearInterval(resInt);
+  var pct=0, found=0, li=0;
+  $('#resLog').innerHTML='';
+  $$('#resFound .found').forEach(function(d){d.classList.remove('on');});
+  $('#resOpen').setAttribute('disabled','');
+  $('#resPct').textContent='0'; $('#resFoundN').textContent='0 sources found';
+  $('#resProg').setAttribute('stroke-dashoffset','1030');
+  resInt=setInterval(function(){
+    pct=Math.min(100,pct+7+Math.round(Math.random()*6));
+    $('#resPct').textContent=pct;
+    $('#resProg').setAttribute('stroke-dashoffset',(1030*(1-pct/100)).toFixed(0));
+    var want=Math.round(pct/100*14);
+    while(found<want){ var d=$$('#resFound .found')[found]; if(d) d.classList.add('on'); found++; }
+    $('#resFoundN').textContent=found+' source'+(found===1?'':'s')+' found';
+    if(li<RESLOG.length && pct>li*12){
+      var el=document.createElement('div'); el.textContent=RESLOG[li];
+      $$('#resLog div').forEach(function(x){x.classList.remove('newest');});
+      $('#resLog').appendChild(el);
+      setTimeout(function(){ el.classList.add('on','newest'); },20);
+      if($('#resLog').children.length>6) $('#resLog').removeChild($('#resLog').firstChild);
+      li++;
+    }
+    if(pct>=100){
+      clearInterval(resInt); resInt=null;
+      $('#resOpen').removeAttribute('disabled');
+      $('#resFoundN').textContent='14 sources found · ready';
+    }
+  },700);
+};
+EXIT[9]=function(){ if(resInt) clearInterval(resInt); resInt=null; };
+$('#resOpen').addEventListener('click',function(){ go(10); });
+
+/* ════════════════════════════════════════════════════════════════════════
+   10 / 11 — RESULTS AND THE READER
+   ═══════════════════════════════════════════════════════════════════════ */
+var ARTICLES=[
+ {src:'square',name:'Square',t:'What a scoop shop actually pays per transaction',d:'11 March 2026',x:'The fixed ten cents matters more than the percentage when the average ticket is $4.20.',p:'Every processor quotes the same headline: two point six percent plus ten cents. The number that matters to a shop selling four-dollar cones is not the percentage — it is the fixed cent charge, because it lands on every single sale regardless of size.'},
+ {src:'square',name:'Square',t:'Offline mode: what still sells when the Wi-Fi drops',d:'2 February 2026',x:'Card payments queue locally for up to 24 hours and settle when the connection returns.',p:'Offline mode holds card payments on the device and settles them when the network comes back. The limit is time, not count: twenty-four hours, after which unsettled payments are voided and you eat the loss.'},
+ {src:'square',name:'Square',t:'Tip splitting across a two-person shift',d:'19 January 2026',x:'Pooled tips divide by hours worked, not by tickets rung.',p:'Pooled tips divide by hours worked rather than by tickets rung, which matters when one person runs the register all afternoon and the other scoops.'},
+ {src:'square',name:'Square',t:'Hardware you can buy outright',d:'8 December 2025',x:'A $299 terminal beats a $39 monthly lease inside eight months.',p:'A terminal bought outright at two hundred ninety-nine dollars costs less than a thirty-nine dollar monthly lease after eight months, and it is yours when the shop closes for winter break.'},
+ {src:'toast',name:'Toast',t:'Why food-service pricing is quoted differently',d:'4 March 2026',x:'Bundled software fees are quoted per terminal, per month, and they compound.',p:'Food-service pricing bundles software per terminal per month. Two registers means two subscriptions, which is the line most shops miss when they compare a headline rate.'},
+ {src:'toast',name:'Toast',t:'Kitchen display systems in a shop with no kitchen',d:'21 February 2026',x:'The KDS is bundled whether or not a scoop shop can use it.',p:'The kitchen display system arrives bundled. A scoop shop with no ticket line pays for a screen it will never hang, unless the rep is willing to unbundle it.'},
+ {src:'toast',name:'Toast',t:'Contract length and the early exit fee',d:'12 January 2026',x:'Two-year terms are standard; exiting early costs the remaining software fees.',p:'Two-year terms are standard and the exit fee is the remainder of the software subscription, not a flat penalty. For a student business that may not exist in two years, that is the whole decision.'},
+ {src:'spoton',name:'SpotOn',t:'Interchange-plus, explained without the sales deck',d:'28 February 2026',x:'Ask for the interchange-plus sheet. A blended rate hides where the money goes.',p:'Interchange-plus separates what the card networks charge from what the processor adds. A blended rate hides the split, which is exactly why it is offered first.'},
+ {src:'spoton',name:'SpotOn',t:'Farmers-market mode on a phone',d:'15 February 2026',x:'A card reader on a phone, with the same rate as the countertop.',p:'The reader pairs to a phone and charges the same card-present rate as the countertop terminal, which is how a dorm-lobby pop-up stays profitable.'},
+ {src:'spoton',name:'SpotOn',t:'What support answers at 9 PM on a Saturday',d:'30 January 2026',x:'Phone support is 24/7; the average answer time posted is under two minutes.',p:'Support answers around the clock. The posted average is under two minutes, which is the number that matters when the line is out the door and the reader will not pair.'},
+ {src:'forum',name:'r/icecream',t:'“We switched mid-season and it cost us a Saturday”',d:'6 March 2026',x:'A shop owner on migrating menus, and the day of sales they lost doing it.',p:'A shop owner writes up a mid-season migration: the menu imported cleanly, the modifiers did not, and rebuilding sixty flavor variants ate a Saturday in July.'},
+ {src:'forum',name:'r/icecream',t:'Thread: cheapest way to take cards at a pop-up',d:'22 February 2026',x:'Forty-one replies. The consensus is boring and it is right.',p:'Forty-one replies converge on the boring answer: use the free reader from whichever processor you already use, and do not sign a hardware lease for a stand you run six times a year.'},
+ {src:'trade',name:'Trade press',t:'Small-format frozen dessert: 2026 payments survey',d:'1 March 2026',x:'Median effective rate for shops under $200k: 3.1 percent all-in.',p:'The survey puts the median effective rate for shops under two hundred thousand dollars in sales at three point one percent all-in, once monthly fees are folded back into the percentage.'},
+ {src:'trade',name:'Trade press',t:'The average ticket problem in campus retail',d:'17 January 2026',x:'Campus shops run 30 percent below the national average ticket, which magnifies flat fees.',p:'Campus shops run about thirty percent below the national average ticket. Every flat per-transaction fee therefore weighs about a third more against a college scoop shop than the industry benchmark suggests.'}
+];
+function renderCards(tab){
+  var host=$('#resCards'), list=ARTICLES.filter(function(a){return tab==='all'||a.src===tab;});
+  host.innerHTML=list.map(function(a,i){
+    return '<button class="card" data-art="'+ARTICLES.indexOf(a)+'">'+
+      '<div><div class="c-t">'+a.t+'</div><div class="c-x">'+a.x+'</div></div>'+
+      '<div class="c-m">'+a.name+'<b>'+a.d+'</b></div></button>';
+  }).join('');
+}
+$('#resTabs').addEventListener('click',function(e){
+  var t=e.target.closest('.tab'); if(!t) return;
+  $$('#resTabs .tab').forEach(function(x){x.classList.remove('on');});
+  t.classList.add('on'); renderCards(t.getAttribute('data-tab'));
+  $('#resCards').scrollTop=0;
+});
+$('#resCards').addEventListener('click',function(e){
+  var c=e.target.closest('.card'); if(!c) return;
+  var a=ARTICLES[parseInt(c.getAttribute('data-art'),10)];
+  $('#artTitle').textContent=a.t; $('#artSrc').textContent=a.name;
+  $('#artDate').textContent=a.d; $('#artP1').textContent=a.p;
+  go(11); $('.reader-body').scrollTop=0;
+});
+renderCards('all');
+$('#artSave').addEventListener('click',function(){
+  $('#artSave').textContent='Saved to “Creamery”'; $('#artSave').classList.add('key');
+  setTimeout(function(){ $('#artSave').textContent='Save to a folder'; $('#artSave').classList.remove('key'); },2600);
+});
+
+/* ════════════════════════════════════════════════════════════════════════
+   12 — FOLLOW-UP THREAD
+   ═══════════════════════════════════════════════════════════════════════ */
+var THREAD=[
+  {who:'you',b:'Which of these should the creamery actually use?'},
+  {who:'atlas',b:'Square, on the free tier, with the terminal bought outright. It is the only one of the three that queues card payments when the dorm Wi-Fi drops and does not bundle a kitchen screen you cannot hang.',p:'Sourced · 4'},
+  {who:'you',b:'What does it cost me on a Saturday?'},
+  {who:'atlas',b:'At a hundred eighty tickets averaging four dollars twenty, you pay about nineteen dollars in fixed fees and twenty dollars in percentage — thirty-nine dollars on seven hundred fifty-six in sales, or five point two percent all-in.',p:'Sourced · 2'}
+];
+function renderThread(anim){
+  var host=$('#thread');
+  host.innerHTML=THREAD.map(function(t,i){
+    var isNew=anim&&i>=THREAD.length-2;
+    return '<div class="turn '+t.who+(isNew?' enter':'')+'">'+
+      '<div class="t-k eyebrow'+(t.who==='atlas'?' ice':' faint')+'">'+(t.who==='you'?'You':'Atlas')+'</div>'+
+      '<div class="t-b">'+t.b+'</div>'+
+      (t.p?'<div class="meta low" style="margin-top:12px">'+t.p+'</div>':'')+'</div>';
+  }).join('');
+  $('#threadCount').textContent=THREAD.length+' turns';
+  host.scrollTop=host.scrollHeight;
+}
+function answerFor(q){
+  var s=q.toLowerCase();
+  if(/offline|wi-?fi|network|drop/.test(s)) return {b:'Square and Toast both hold card payments locally and settle when the network returns; Square gives you twenty-four hours, Toast eight. SpotOn refuses the sale outright, which on a ninety-degree Saturday is a walked customer and a melted cone.',p:'Sourced · 3'};
+  if(/august|month|cost|pay|fee|price|rate/.test(s)) return {b:'A normal August runs about twenty-two hundred in sales. At five point two percent all-in that is a hundred fourteen dollars in fees — call it twenty-eight cones.',p:'Sourced · 2 · plus your July numbers'};
+  if(/carlos|learn|train|shift|staff/.test(s)) return {b:'Yes. Carlos rang up the whole closing shift on the old iPad without asking you once. Square’s register screen is the same shape, and the only new step is choosing a cone size before the flavour.',p:'Recalled · 3w · your note about his first shift'};
+  if(/tip/.test(s)) return {b:'Pooled tips divide by hours worked, not tickets rung. With you on register and Carlos scooping, that splits closer to even than the old jar did.',p:'Sourced · 1'};
+  if(/toast/.test(s)) return {b:'Toast is built for kitchens. You would pay per terminal per month for a display screen the creamery has nowhere to hang, on a two-year term with an exit fee equal to the remaining subscription.',p:'Sourced · 3'};
+  return {b:'From the fourteen sources I read: the fixed per-transaction fee decides this, not the headline rate, because your average ticket is four dollars twenty. Everything else is preference.',p:'Sourced · 14'};
+}
+function ask(q){
+  if(!q.trim()) return;
+  THREAD.push({who:'you',b:q});
+  renderThread(true);
+  setTimeout(function(){
+    var a=answerFor(q); THREAD.push({who:'atlas',b:a.b,p:a.p}); renderThread(true);
+  },RM?60:760);
+}
+$('#askSend').addEventListener('click',function(){ ask($('#askInput').value); $('#askInput').value=''; });
+$('#askInput').addEventListener('keydown',function(e){ if(e.key==='Enter'){ ask(this.value); this.value=''; } });
+$('#suggests').addEventListener('click',function(e){
+  var c=e.target.closest('[data-ask]'); if(!c) return; ask(c.getAttribute('data-ask'));
+});
+$('#s12 .actionrow').addEventListener('click',function(e){
+  var b=e.target.closest('[data-act]'); if(!b) return;
+  var note=$('#actNote'), m={folder:'Saved to the “Creamery” folder.',doc:'Made a document — 3 pages, in your drive.',mail:'Emailed to james@wustl.edu.'};
+  note.textContent=m[b.getAttribute('data-act')];
+  note.style.opacity='1'; setTimeout(function(){ note.style.opacity='0'; },3200);
+});
+ENTER[12]=function(){ renderThread(false); };
+
+/* ════════════════════════════════════════════════════════════════════════
+   13 — WEATHER: the sun on its arc
+   ═══════════════════════════════════════════════════════════════════════ */
+ENTER[13]=function(){
+  var hrs=[[0,91],[1,88],[2,86],[3,84],[4,81],[5,79],[6,78],[7,77]];
+  var d0=new Date(), h0=d0.getHours();
+  $('#wxHours').innerHTML=hrs.map(function(r,i){
+    var h=(h0+r[0])%24, lab=(h%12||12)+' '+(h<12?'AM':'PM');
+    return '<div class="wx-hour'+(i===0?' now':'')+'"><div class="meta'+(i===0?'':' low')+'">'+(i===0?'Now':lab)+'</div>'+
+      '<b>'+r[1]+'°</b><i></i></div>';
+  }).join('');
+  var p=$('#wxArc .path'), len=p.getTotalLength();
+  var d=new Date(), mins=d.getHours()*60+d.getMinutes();
+  var rise=6*60+24, set=19*60+56;
+  var f=Math.max(0,Math.min(1,(mins-rise)/(set-rise)));
+  var pt=p.getPointAtLength(len*f);
+  $('#wxSun').setAttribute('cx',pt.x); $('#wxSun').setAttribute('cy',pt.y);
+  $('#wxHalo').setAttribute('cx',pt.x); $('#wxHalo').setAttribute('cy',pt.y);
+  $('#wxLived').setAttribute('stroke-dasharray',len);
+  $('#wxLived').setAttribute('stroke-dashoffset',(len*(1-f)).toFixed(1));
+};
+
+/* ════════════════════════════════════════════════════════════════════════
+   14 — TIMERS: they really tick
+   ═══════════════════════════════════════════════════════════════════════ */
+var now=Date.now();
+var timers=[
+  {id:1,label:'Waffle cone batch',total:9*60,ends:now+272000,running:true,rem:272},
+  {id:2,label:'Chem 261 titration',total:15*60,ends:now+742000,running:true,rem:742},
+  {id:3,label:'Laundry, second load',total:45*60,ends:now+1583000,running:false,rem:1583}
+];
+var nextTimerId=4;
+function tRem(t){ return t.running?Math.max(0,(t.ends-Date.now())/1000):Math.max(0,t.rem); }
+function fmt(s){ s=Math.ceil(s); var m=Math.floor(s/60); return pad(m)+':'+pad(s%60); }
+function renderTimers(){
+  $('#timerList').innerHTML=timers.map(function(t){
+    return '<div class="timer'+(t.running?'':' paused')+'" data-t="'+t.id+'">'+
+      '<svg class="timer-orbit" viewBox="0 0 150 92" aria-hidden="true">'+
+        '<ellipse class="ell" cx="75" cy="46" rx="62" ry="34" transform="rotate(-12 75 46)"/>'+
+        '<line class="tick" x1="68" y1="13" x2="65" y2="4"/>'+
+        '<g class="bodyg"><circle class="body'+(t.running?'':' paused')+'" r="5"/></g>'+
+      '</svg>'+
+      '<div><button class="t-count" data-toggle="'+t.id+'">'+fmt(tRem(t))+'</button>'+
+      '<div class="t-label lede sm">'+t.label+'</div></div>'+
+      '<div class="t-ctl">'+
+        '<button class="btn" data-adj="'+t.id+',-60">−1 min</button>'+
+        '<button class="btn" data-adj="'+t.id+',60">+1 min</button>'+
+        '<button class="btn" data-toggle="'+t.id+'">'+(t.running?'Pause':'Resume')+'</button>'+
+        '<button class="btn ghost" data-kill="'+t.id+'">Cancel</button>'+
+      '</div></div>';
+  }).join('');
+  var W9=['no','one','two','three','four','five','six','seven','eight'];
+  var run=timers.filter(function(t){return t.running;}).length;
+  $('#timerHead').textContent=timers.length===0?'Nothing counting':
+    (W9[timers.length]||timers.length).replace(/^./,function(c){return c.toUpperCase();})+
+    ' timer'+(timers.length===1?'':'s')+', '+(W9[run]||run)+' running';
+  paintTimers();
+}
+function paintTimers(){
+  $$('#timerList .timer').forEach(function(el){
+    var t=timers.filter(function(x){return x.id===parseInt(el.getAttribute('data-t'),10);})[0];
+    if(!t) return;
+    var rem=tRem(t), p=1-Math.max(0,Math.min(1,rem/t.total));
+    var th=(-90+p*360)*D2R, rx=62, ry=34, ph=-12*D2R;
+    var x=75+rx*Math.cos(th)*Math.cos(ph)-ry*Math.sin(th)*Math.sin(ph);
+    var y=46+rx*Math.cos(th)*Math.sin(ph)+ry*Math.sin(th)*Math.cos(ph);
+    el.querySelector('.bodyg').setAttribute('transform','translate('+x.toFixed(1)+','+y.toFixed(1)+')');
+    var c=el.querySelector('.t-count');
+    c.textContent=rem<=0?'Time’s up':fmt(rem);
+    el.classList.toggle('done',rem<=0);
+    el.classList.toggle('paused',!t.running);
+  });
+}
+function chromeTimers(){
+  var live=timers.filter(function(t){return t.running&&tRem(t)>0;});
+  var el=$('#chromeTimers');
+  if(!live.length){ el.classList.remove('on'); return; }
+  live.sort(function(a,b){return tRem(a)-tRem(b);});
+  el.classList.add('on');
+  el.innerHTML=live.length+' timer'+(live.length===1?'':'s')+' · '+fmt(tRem(live[0]))+'&nbsp;&nbsp;';
+  var iv=$('#idleTimerV'), iN=$('#idleTimerN');
+  if(iv){ iv.textContent=live.length+' timer'+(live.length===1?'':'s'); iN.textContent=live[0].label+' · '+fmt(tRem(live[0]))+' left'; }
+}
+var rang={};
+setInterval(function(){
+  chromeTimers();
+  if(current===14) paintTimers();
+  timers.forEach(function(t){
+    if(t.running&&tRem(t)<=0&&!rang[t.id]){ rang[t.id]=1; if(actx) playSound('meridian',Math.round(vol*0.6)); }
+  });
+},250);
+$('#timerList').addEventListener('click',function(e){
+  var b=e.target.closest('[data-adj],[data-toggle],[data-kill]'); if(!b) return;
+  var t, parts;
+  if(b.hasAttribute('data-adj')){
+    parts=b.getAttribute('data-adj').split(','); t=timers.filter(function(x){return x.id===parseInt(parts[0],10);})[0];
+    if(!t) return;
+    var delta=parseInt(parts[1],10);
+    if(t.running){ t.ends=Math.max(Date.now(),t.ends+delta*1000); } else { t.rem=Math.max(0,t.rem+delta); }
+    t.total=Math.max(t.total, tRem(t)); rang[t.id]=0;
+  } else if(b.hasAttribute('data-toggle')){
+    t=timers.filter(function(x){return x.id===parseInt(b.getAttribute('data-toggle'),10);})[0];
+    if(!t) return;
+    if(t.running){ t.rem=tRem(t); t.running=false; } else { t.ends=Date.now()+t.rem*1000; t.running=true; }
+  } else {
+    var id=parseInt(b.getAttribute('data-kill'),10);
+    timers=timers.filter(function(x){return x.id!==id;});
+  }
+  renderTimers();
+});
+$('#addTimer').addEventListener('click',function(){
+  timers.push({id:nextTimerId++,label:'Cones out of the oven',total:300,ends:Date.now()+300000,running:true,rem:300});
+  renderTimers();
+});
+ENTER[14]=function(){ renderTimers(); };
+renderTimers();
+$('#chromeTimers').addEventListener('click',function(){ go(14); });
+
+/* ════════════════════════════════════════════════════════════════════════
+   15 / 16 — ALARMS AND THE EDITOR
+   ═══════════════════════════════════════════════════════════════════════ */
+var DAYL=['S','M','T','W','T','F','S'], DAYN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+var alarms=[
+  {id:1,h:6,m:40,mer:'AM',label:'Creamery prep',days:[1,2,3,4,5],on:true,snd:'meridian'},
+  {id:2,h:7,m:30,mer:'AM',label:'Chem 261 section',days:[2,4],on:true,snd:'hairline'},
+  {id:3,h:9,m:15,mer:'AM',label:'Saturday inventory',days:[6],on:false,snd:'ganymede'},
+  {id:4,h:10,m:45,mer:'PM',label:'Put the phone down',days:[0,1,2,3,4,5,6],on:true,snd:'aurora'}
+];
+var nextAlarmId=5, editing=null, vol=62;
+function daysLabel(d){
+  if(d.length===7) return 'Daily';
+  if(d.length===5&&d.indexOf(0)<0&&d.indexOf(6)<0) return 'Weekdays';
+  if(d.length===2&&d.indexOf(0)>=0&&d.indexOf(6)>=0) return 'Sat + Sun';
+  if(!d.length) return 'Once';
+  return d.slice().sort().map(function(i){return DAYN[i];}).join(', ');
+}
+function renderAlarms(){
+  $('#alarmList').innerHTML=alarms.map(function(a){
+    return '<div class="rowitem alarm-row'+(a.on?'':' off')+'" data-a="'+a.id+'">'+
+      '<button class="a-time" data-edit="'+a.id+'">'+a.h+':'+pad(a.m)+'<em>'+a.mer+'</em></button>'+
+      '<button data-edit="'+a.id+'" style="text-align:left"><div class="a-name">'+a.label+'</div>'+
+      '<div class="meta low" style="margin-top:7px">'+(a.on?'Next off in '+nextIn(a):'Not set to ring')+'</div></button>'+
+      '<div class="chip'+(a.on?' on':'')+'">'+daysLabel(a.days)+'</div>'+
+      '<button class="toggle'+(a.on?' on':'')+'" data-toggle-a="'+a.id+'" aria-label="Turn this alarm on or off">'+
+        '<span class="track"><span class="knob"></span></span></button></div>';
+  }).join('');
+  var on=alarms.filter(function(a){return a.on;});
+  $('#alarmHead').textContent=on.length?('Next: '+on[0].h+':'+pad(on[0].m)+' '+on[0].mer+', '+on[0].label):'Nothing set to ring';
+}
+function nextIn(a){
+  var d=new Date(), h24=(a.mer==='PM'?(a.h%12)+12:a.h%12), t=new Date(d);
+  t.setHours(h24,a.m,0,0); if(t<=d) t=new Date(t.getTime()+86400000);
+  var mins=Math.round((t-d)/60000), hh=Math.floor(mins/60);
+  return hh?hh+' hour'+(hh===1?'':'s')+' '+(mins%60)+' min':mins+' min';
+}
+$('#alarmList').addEventListener('click',function(e){
+  var tg=e.target.closest('[data-toggle-a]');
+  if(tg){ var id=parseInt(tg.getAttribute('data-toggle-a'),10);
+    alarms.forEach(function(a){ if(a.id===id) a.on=!a.on; }); renderAlarms(); return; }
+  var ed=e.target.closest('[data-edit]');
+  if(ed){ openAlarm(parseInt(ed.getAttribute('data-edit'),10)); }
+});
+function openAlarm(id){
+  editing=alarms.filter(function(a){return a.id===id;})[0];
+  if(!editing){ editing={id:nextAlarmId++,h:7,m:0,mer:'AM',label:'New alarm',days:[1,2,3,4,5],on:true,snd:'meridian',isNew:true}; }
+  $('#aeKicker').textContent=(editing.isNew?'New alarm':'Editing · '+editing.label);
+  $('#aeH').textContent=editing.h; $('#aeM').textContent=pad(editing.m);
+  $$('#s16 [data-mer]').forEach(function(b){ b.classList.toggle('on',b.getAttribute('data-mer')===editing.mer); });
+  $$('#aeDays .ae-day').forEach(function(b){ b.classList.toggle('on',editing.days.indexOf(parseInt(b.getAttribute('data-day'),10))>=0); });
+  $('#aeLabel').value=editing.label;
+  $$('#aeSounds .snd').forEach(function(b){ b.classList.toggle('on',b.getAttribute('data-snd')===editing.snd); });
+  $('#aeDelete').style.display=editing.isNew?'none':'';
+  go(16);
+}
+$('#addAlarm').addEventListener('click',function(){ editing=null; openAlarm(-1); });
+ENTER[16]=function(){ if(!editing&&alarms.length) openAlarm(alarms[0].id); };
+$('#s16').addEventListener('click',function(e){
+  var st=e.target.closest('[data-step]');
+  if(st&&editing){
+    var p=st.getAttribute('data-step').split(','), k=p[0], d=parseInt(p[1],10);
+    if(k==='h'){ editing.h=((editing.h-1+ (d>0?1:-1) +12)%12)+1; $('#aeH').textContent=editing.h; }
+    else { editing.m=(editing.m+d+60)%60; $('#aeM').textContent=pad(editing.m); }
+    return;
+  }
+  var mer=e.target.closest('[data-mer]');
+  if(mer&&editing){ editing.mer=mer.getAttribute('data-mer');
+    $$('#s16 [data-mer]').forEach(function(b){ b.classList.toggle('on',b===mer); }); return; }
+  var day=e.target.closest('.ae-day');
+  if(day&&editing){ var v=parseInt(day.getAttribute('data-day'),10), i=editing.days.indexOf(v);
+    if(i<0) editing.days.push(v); else editing.days.splice(i,1);
+    day.classList.toggle('on',i<0); return; }
+  var pre=e.target.closest('[data-preset]');
+  if(pre&&editing){
+    var k2=pre.getAttribute('data-preset');
+    editing.days=k2==='weekdays'?[1,2,3,4,5]:k2==='weekend'?[0,6]:[0,1,2,3,4,5,6];
+    $$('#aeDays .ae-day').forEach(function(b){ b.classList.toggle('on',editing.days.indexOf(parseInt(b.getAttribute('data-day'),10))>=0); });
+    return; }
+  var snd=e.target.closest('.snd');
+  if(snd&&editing){
+    editing.snd=snd.getAttribute('data-snd');
+    $$('#aeSounds .snd').forEach(function(b){ b.classList.toggle('on',b===snd); });
+    playSound(editing.snd,vol);
+  }
+});
+$('#aeVol').addEventListener('input',function(){ vol=parseInt(this.value,10); $('#aeVolV').textContent=vol; });
+$('#aeVol').addEventListener('change',function(){ if(editing) playSound(editing.snd,vol); });
+$('#aeSave').addEventListener('click',function(){
+  if(editing){
+    editing.label=$('#aeLabel').value||'Alarm';
+    if(editing.isNew){ delete editing.isNew; alarms.push(editing); }
+    editing.on=true;
+  }
+  renderAlarms(); go(15);
+});
+$('#aeDelete').addEventListener('click',function(){
+  if(editing) alarms=alarms.filter(function(a){return a.id!==editing.id;});
+  renderAlarms(); go(15);
+});
+ENTER[15]=renderAlarms;
+renderAlarms();
+
+/* ════════════════════════════════════════════════════════════════════════
+   17 / 18 / 19 — CALENDAR
+   ═══════════════════════════════════════════════════════════════════════ */
+ENTER[17]=function(){
+  var d=new Date(), h=d.getHours()+d.getMinutes()/60;
+  var top=Math.max(0,Math.min(828,(h-6)*46));
+  $('#nowLine').style.top=top.toFixed(0)+'px';
+  $('#nowLabel').textContent=(d.getHours()%12||12)+':'+pad(d.getMinutes());
+  $$('#dayGrid .ev').forEach(function(e){ e.classList.toggle('past',parseFloat(e.getAttribute('data-h'))+1<h); });
+  $('#dayScroll').scrollTop=Math.max(0,top-190);
+};
+var evTime=14*60, evDur=120;
+function fmt12(mins){ var h=Math.floor(mins/60), m=mins%60; return (h%12||12)+':'+pad(m)+' '+(h<12?'AM':'PM'); }
+function fmtDur(m){ var h=Math.floor(m/60), r=m%60; return (h?h+' hour'+(h===1?'':'s'):'')+(h&&r?' ':'')+(r?r+' min':''); }
+function paintEvent(){
+  $('#evTime').textContent=fmt12(evTime); $('#evDur').textContent=fmtDur(evDur);
+  $('#rbWhen').textContent='Mon 17 Aug · '+fmt12(evTime)+' – '+fmt12(evTime+evDur);
+}
+$('#s18').addEventListener('click',function(e){
+  var t=e.target.closest('[data-evtime]'), d=e.target.closest('[data-evdur]'), r=e.target.closest('[data-rep]');
+  if(t){ evTime=Math.max(0,Math.min(1410,evTime+parseInt(t.getAttribute('data-evtime'),10))); paintEvent(); }
+  if(d){ evDur=Math.max(15,Math.min(480,evDur+parseInt(d.getAttribute('data-evdur'),10))); paintEvent(); }
+  if(r){ $$('#evRepeat .chip').forEach(function(x){x.classList.toggle('on',x===r);}); }
+});
+$('#addPerson').addEventListener('click',function(){
+  var el=document.createElement('div'); el.className='person';
+  el.innerHTML='<i class="p-o">CM</i><span class="p-n">Carlos Medina</span>';
+  $('#evPeople').insertBefore(el,$('#addPerson'));
+  $('#addPerson').style.display='none';
+});
+$('#evSave').addEventListener('click',function(){
+  paintEvent();
+  $('#ev19ask').classList.add('on'); $('#ev19done').classList.remove('on');
+  $('#ev19actions').style.display='';
+  go(19);
+});
+$('#ev19confirm').addEventListener('click',function(){
+  $('#ev19ask').classList.remove('on'); $('#ev19done').classList.add('on');
+  $('#ev19actions').style.display='none';
+  setTimeout(function(){ if(current===19) go(17); },2600);
+});
+$('#ev19edit').addEventListener('click',function(){ go(18); });
+ENTER[19]=function(){
+  $('#ev19ask').classList.add('on'); $('#ev19done').classList.remove('on');
+  $('#ev19actions').style.display=''; paintEvent();
+};
+paintEvent();
+
+/* ════════════════════════════════════════════════════════════════════════
+   20 / 21 — CONTACTS AND THE TEXT
+   ═══════════════════════════════════════════════════════════════════════ */
+$$('#s20 .cand').forEach(function(c){
+  c.addEventListener('click',function(){
+    var who=c.getAttribute('data-carlos');
+    $('#msgWho').textContent=who;
+    $('#msgWho2').textContent=who+' · (314) 555‑0148';
+  });
+});
+function resetMsg(){
+  $('#msgAsk').classList.add('on'); $('#msgDone').classList.remove('on');
+  $('#msgActions').style.display='';
+}
+$('#msgSend').addEventListener('click',function(){
+  var d=new Date();
+  $('#msgTime').textContent=(d.getHours()%12||12)+':'+pad(d.getMinutes())+' '+(d.getHours()<12?'AM':'PM');
+  $('#msgAsk').classList.remove('on'); $('#msgDone').classList.add('on');
+  $('#msgActions').style.display='none';
+});
+$('#msgEdit').addEventListener('click',function(){ go(5); });
+ENTER[21]=resetMsg;
+
+/* ════════════════════════════════════════════════════════════════════════
+   22 / 23 / 24 — MAIL
+   ═══════════════════════════════════════════════════════════════════════ */
+var MAIL=[
+  {id:1,from:'Priya Raghavan',subj:'Cone inventory before Tuesday',t:'8:12 PM',unread:true,
+   snip:'Hey — before the Tuesday order goes in, can you count what is left in the walk-in?',
+   body:['Hey — before the Tuesday order goes in, can you count what is left in the walk-in? Blue Ridge wants the number by nine tomorrow morning or we slip to Thursday.',
+         'Waffle cones especially. Last week we guessed and ended up short on Saturday, which is the one day it actually costs us.',
+         'A photo of the shelf is fine, I can count from that.','— P']},
+  {id:2,from:'Campus Creamery orders',subj:'3 orders due Tuesday',t:'7:41 PM',unread:true,
+   snip:'Two pint boxes for the Bio 2960 study group and one cake for the Ruiz family.',
+   body:['Two pint boxes for the Bio 2960 study group, pickup Tuesday 6 PM.','One ice cream cake, Ruiz family, Tuesday 4 PM, “Happy 60th Abuela” in blue.','One gallon vanilla, dining services, Wednesday.']},
+  {id:3,from:'Dev Kapoor',subj:'Lab partner swap?',t:'6:58 PM',unread:true,
+   snip:'Any chance you can take Monday 2 PM instead of Wednesday? I have a conflict.',
+   body:['Any chance you can take Monday 2 PM instead of Wednesday? I picked up a shift at the library and it overlaps.','If Monday works I will do the write-up for the whole titration set.']},
+  {id:4,from:'Chem 261 course staff',subj:'Prelab 6 posted',t:'4:22 PM',unread:false,
+   snip:'Prelab 6 is on the course site. Bring your own goggles; the loaners are out.',
+   body:['Prelab 6 is posted. Read section 4 before you come in — the titration curve question on the quiz comes straight from it.','Bring your own goggles. The loaner bin is empty until Thursday.']},
+  {id:5,from:'Blue Ridge Dairy',subj:'Cone restock: Thursday',t:'2:04 PM',unread:false,
+   snip:'Waffle cones are back Thursday. Sugar cones are in stock now if you need a bridge.',
+   body:['Waffle cones are back in stock Thursday morning and we can hold a case for you.','Sugar cones are in stock now if you need something to bridge the weekend.']},
+  {id:6,from:'Mom',subj:'Sunday call?',t:'11:30 AM',unread:false,
+   snip:'Are we still on for tonight? Your father wants to hear about the freezer.',
+   body:['Are we still on for tonight? Your father has been telling everyone at church about the freezer.','No rush if you are working. Love you.']},
+  {id:7,from:'WashU Rec',subj:'Lacrosse lift moved to Sumers',t:'9:15 AM',unread:false,
+   snip:'Sunday lift is in Sumers Rec this week, not the field house.',
+   body:['Sunday lift moves to Sumers Rec this week. Same time, 6 PM.','The field house floor is being refinished through Friday.']}
+];
+var openMail=MAIL[0];
+function renderInbox(){
+  $('#inboxList').innerHTML=MAIL.map(function(m){
+    return '<button class="rowitem mail'+(m.unread?' unread':'')+'" data-mail="'+m.id+'">'+
+      '<i class="m-dot"></i><div class="m-s">'+m.from+'</div>'+
+      '<div><div class="m-sub">'+m.subj+'</div><div class="m-x">'+m.snip+'</div></div>'+
+      '<div class="m-t">'+m.t+'</div></button>';
+  }).join('');
+  var u=MAIL.filter(function(m){return m.unread;}).length;
+  $('#inboxHead').textContent=u?(['No','One','Two','Three','Four','Five','Six','Seven'][u]||u)+' unread since dinner':'Everything read';
+}
+$('#inboxList').addEventListener('click',function(e){
+  var b=e.target.closest('[data-mail]'); if(!b) return;
+  var m=MAIL.filter(function(x){return x.id===parseInt(b.getAttribute('data-mail'),10);})[0];
+  m.unread=false; openMail=m; renderInbox(); go(23);
+});
+$('#inboxAll').addEventListener('click',function(){ MAIL.forEach(function(m){m.unread=false;}); renderInbox(); });
+ENTER[22]=renderInbox;
+renderInbox();
+ENTER[23]=function(){
+  $('#mailFrom').textContent=openMail.from+' · '+openMail.t;
+  $('#mailSubj').textContent=openMail.subj;
+  $('#mailBody').innerHTML=openMail.body.map(function(p){return '<p>'+p+'</p>';}).join('');
+  $('#summarize').textContent='Summarize this'; $('#summarize').disabled=false;
+};
+$('#summarize').addEventListener('click',function(){
+  var b=$('#mailBody');
+  if(b.querySelector('.summary')) return;
+  var pts=openMail.id===1?['Priya needs the walk-in count before nine tomorrow.','Waffle cones are the number that matters.','A photo of the shelf will do — you took one at 9:12 tonight.']
+    :['The ask: '+openMail.subj.toLowerCase()+'.','It came in at '+openMail.t+'.','Nothing here needs an answer tonight.'];
+  var el=document.createElement('div'); el.className='summary';
+  el.innerHTML='<div class="prov" data-kind="sourced" data-count="1" data-label="Sourced"></div>'+
+    '<ul>'+pts.map(function(p){return '<li><span>'+p+'</span></li>';}).join('')+'</ul>'+
+    '<div class="meta low" style="margin-top:16px">Summarized from this message only. Nothing outside it was used.</div>';
+  b.appendChild(el); refreshProv(el);
+  b.scrollTop=b.scrollHeight;
+  this.textContent='Summarized'; this.disabled=true;
+});
+$('#archiveMail').addEventListener('click',function(){
+  MAIL=MAIL.filter(function(m){return m.id!==openMail.id;});
+  renderInbox(); go(22);
+});
+function resetMail24(){
+  $('#mailAsk').classList.add('on'); $('#mailSent').classList.remove('on');
+  $('#mailActions').style.display='';
+}
+$('#mailSend').addEventListener('click',function(){
+  var d=new Date();
+  $('#mailSentTime').textContent=(d.getHours()%12||12)+':'+pad(d.getMinutes())+' '+(d.getHours()<12?'AM':'PM');
+  $('#mailAsk').classList.remove('on'); $('#mailSent').classList.add('on');
+  $('#mailActions').style.display='none';
+});
+$('#mailDrop').addEventListener('click',function(){
+  $('#mailDrop').textContent='Photo removed';
+  var a=$('.attach'); if(a) a.style.opacity='.28';
+});
+ENTER[24]=function(){ resetMail24(); drawPlateOn($('#attachThumb'),7,'shelf'); };
+
+/* ════════════════════════════════════════════════════════════════════════
+   PLATE PHOTOGRAPHS — procedural, duotone, drawn once
+   ═══════════════════════════════════════════════════════════════════════ */
+function drawPlateOn(cv,seed,kind){
+  if(!cv) return;
+  var c=cv.getContext('2d'), W=cv.width, H=cv.height, R=rng(seed*7919+31), i;
+  c.fillStyle='#000'; c.fillRect(0,0,W,H);
+  var wash=c.createLinearGradient(0,0,W*0.35,H);
+  wash.addColorStop(0,'rgba(191,227,242,.19)'); wash.addColorStop(1,'rgba(191,227,242,0)');
+  c.fillStyle=wash; c.fillRect(0,0,W,H);
+  function box(x,y,w,h,a){ c.fillStyle='rgba(191,227,242,'+a+')'; c.fillRect(x,y,w,h); }
+  function line(x1,y1,x2,y2,a){ c.strokeStyle='rgba(243,237,228,'+a+')'; c.lineWidth=Math.max(1,W/400); c.beginPath(); c.moveTo(x1,y1); c.lineTo(x2,y2); c.stroke(); }
+  if(kind==='shelf'){
+    for(i=0;i<3;i++){
+      var sy=H*(0.30+i*0.24);
+      line(0,sy,W,sy,.16);
+      var n=3+Math.floor(R()*4), x=W*0.06;
+      for(var k=0;k<n;k++){
+        var bw=W*(0.06+R()*0.09), bh=H*(0.10+R()*0.08);
+        box(x,sy-bh,bw,bh,0.05+R()*0.13);
+        x+=bw+W*0.03;
+      }
+    }
+  } else if(kind==='cones'){
+    for(i=0;i<7;i++){
+      var cx=W*(0.10+i*0.12), cy=H*(0.30+R()*0.18);
+      c.fillStyle='rgba(191,227,242,'+(0.06+R()*0.14).toFixed(3)+')';
+      c.beginPath(); c.moveTo(cx,cy); c.lineTo(cx+W*0.055,cy); c.lineTo(cx+W*0.027,cy+H*0.42); c.closePath(); c.fill();
+    }
+    line(0,H*0.74,W,H*0.74,.18);
+  } else if(kind==='board'){
+    box(W*0.06,H*0.10,W*0.88,H*0.72,.035);
+    for(i=0;i<9;i++){
+      var y=H*(0.20+i*0.065), x2=W*(0.15+R()*0.6);
+      line(W*0.12,y,x2,y,.10+R()*0.16);
+    }
+    c.strokeStyle='rgba(191,227,242,.30)'; c.lineWidth=Math.max(1,W/380);
+    c.beginPath(); c.arc(W*0.70,H*0.44,W*0.10,0,6.2832); c.stroke();
+  } else if(kind==='lab'){
+    c.strokeStyle='rgba(191,227,242,.34)'; c.lineWidth=Math.max(1,W/360);
+    c.beginPath(); c.moveTo(W*0.30,H*0.16); c.lineTo(W*0.30,H*0.46); c.lineTo(W*0.20,H*0.80);
+    c.lineTo(W*0.44,H*0.80); c.lineTo(W*0.34,H*0.46); c.lineTo(W*0.34,H*0.16); c.stroke();
+    box(W*0.215,H*0.62,W*0.20,H*0.18,.16);
+    c.beginPath(); c.arc(W*0.70,H*0.56,W*0.13,0,6.2832); c.stroke();
+    box(W*0.60,H*0.62,W*0.20,H*0.07,.12);
+    line(0,H*0.80,W,H*0.80,.20);
+  } else { /* room */
+    box(W*0.08,H*0.12,W*0.34,H*0.46,.10);
+    line(W*0.25,H*0.12,W*0.25,H*0.58,.14);
+    line(W*0.08,H*0.35,W*0.42,H*0.35,.14);
+    box(W*0.52,H*0.52,W*0.40,H*0.06,.09);
+    box(W*0.58,H*0.34,W*0.12,H*0.18,.13);
+    line(0,H*0.72,W,H*0.72,.16);
+  }
+  var vig=c.createRadialGradient(W/2,H/2,Math.min(W,H)*0.2,W/2,H/2,Math.max(W,H)*0.72);
+  vig.addColorStop(0,'rgba(0,0,0,0)'); vig.addColorStop(1,'rgba(0,0,0,.86)');
+  c.fillStyle=vig; c.fillRect(0,0,W,H);
+  for(i=0;i<Math.round(W*H/900);i++){
+    c.fillStyle='rgba(243,237,228,'+(R()*0.05).toFixed(3)+')';
+    c.fillRect(R()*W,R()*H,1,1);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   25 — CAMERA
+   ═══════════════════════════════════════════════════════════════════════ */
+var camRAF=null, camT0=0, camInt=null, noiseTiles=[];
+(function makeNoise(){
+  for(var t=0;t<4;t++){
+    var cv=document.createElement('canvas'); cv.width=cv.height=192;
+    var c=cv.getContext('2d'), img=c.createImageData(192,192), R=rng(1234+t*17);
+    for(var i=0;i<img.data.length;i+=4){
+      var v=Math.round(R()*255);
+      img.data[i]=v; img.data[i+1]=v; img.data[i+2]=v; img.data[i+3]=26;
+    }
+    c.putImageData(img,0,0); noiseTiles.push(cv);
+  }
+})();
+var camScene=document.createElement('canvas'); camScene.width=1152; camScene.height=600;
+drawPlateOn(camScene,7,'shelf');
+ENTER[25]=function(){
+  var cv=$('#camCanvas'), c=cv.getContext('2d');
+  camT0=Date.now();
+  if(camInt) clearInterval(camInt);
+  camInt=setInterval(function(){
+    var s=Math.floor((Date.now()-camT0)/1000);
+    $('#recTime').textContent=pad(Math.floor(s/60))+':'+pad(s%60);
+  },500);
+  var f=0;
+  function frame(){
+    f++;
+    c.clearRect(0,0,1152,600);
+    c.drawImage(camScene,0,0);
+    if(!RM){
+      var t=noiseTiles[f%4];
+      c.globalAlpha=.5;
+      for(var x=-((f*3)%192);x<1152;x+=192) for(var y=-((f*5)%192);y<600;y+=192) c.drawImage(t,x,y);
+      c.globalAlpha=1;
+      var sy=((Date.now()/14)%760)-80;
+      var g=c.createLinearGradient(0,sy,0,sy+80);
+      g.addColorStop(0,'rgba(191,227,242,0)'); g.addColorStop(.5,'rgba(191,227,242,.055)'); g.addColorStop(1,'rgba(191,227,242,0)');
+      c.fillStyle=g; c.fillRect(0,sy,1152,80);
+    }
+    camRAF=requestAnimationFrame(frame);
+  }
+  if(camRAF) cancelAnimationFrame(camRAF);
+  camRAF=requestAnimationFrame(frame);
+};
+EXIT[25]=function(){ if(camRAF) cancelAnimationFrame(camRAF); camRAF=null; if(camInt) clearInterval(camInt); camInt=null; };
+$('#camStop').addEventListener('click',function(){ go(26); });
+$('#shutter').addEventListener('click',function(){
+  var fl=$('#flash'); fl.classList.remove('go'); void fl.offsetWidth; fl.classList.add('go');
+  var n=PLATES.length+2;
+  PLATES.unshift({n:pad(n),cap:'Freezer shelf two, just now.',
+    body:'A fresh plate. Fourteen waffle cones in the sleeve, three pints of vanilla missing from the middle rack.',
+    seed:40+n,kind:'shelf',when:'Taken just now · kept in memory'});
+  $('#camToast').querySelector('.meta').textContent='Kept as plate '+pad(n)+' · shelf-'+pad(n)+'.jpg';
+  $('#camToast').classList.add('on');
+  setTimeout(function(){ $('#camToast').classList.remove('on'); },2600);
+});
+
+/* ════════════════════════════════════════════════════════════════════════
+   26 — GALLERY
+   ═══════════════════════════════════════════════════════════════════════ */
+var PLATES=[
+  {n:'07',cap:'Freezer shelf two, tonight at 9:12 PM.',body:'Fourteen waffle cones in the sleeve, three pints of vanilla missing from the middle rack. The door seal looks clear.',seed:7,kind:'shelf',when:'Taken tonight, 9:12 PM · kept in memory'},
+  {n:'06',cap:'Waffle cone sleeve, Saturday 4:03 PM.',body:'Two sleeves left before the Saturday rush. This is the photo that started the reorder.',seed:6,kind:'cones',when:'Taken Saturday, 4:03 PM'},
+  {n:'05',cap:'Chem 261 whiteboard, Friday 11:20 AM.',body:'The titration curve from section, with the equivalence point circled twice.',seed:5,kind:'board',when:'Taken Friday, 11:20 AM'},
+  {n:'04',cap:'Your desk before the Bio exam, Thursday.',body:'Flashcards in three piles: known, shaky, and the eleven you kept missing.',seed:4,kind:'room',when:'Taken Thursday, 7:44 AM'},
+  {n:'03',cap:'Titration setup, Wednesday 2:31 PM.',body:'Burette at 12.4 mL. You asked me to remember the reading so you would not have to.',seed:3,kind:'lab',when:'Taken Wednesday, 2:31 PM'},
+  {n:'02',cap:'The walk-in, Tuesday 8:02 AM.',body:'Everything stacked before the delivery. Useful as a before picture.',seed:2,kind:'shelf',when:'Taken Tuesday, 8:02 AM'}
+];
+var openPlate=PLATES[0];
+function renderGallery(){
+  var host=$('#gallery');
+  host.innerHTML=PLATES.map(function(p,i){
+    return '<button class="plate" data-plate="'+i+'"><canvas width="480" height="226"></canvas>'+
+      '<div class="pl-c">'+p.cap+'</div><div class="pl-m meta low">Plate '+p.n+'</div></button>';
+  }).join('');
+  $$('#gallery .plate').forEach(function(el,i){ drawPlateOn(el.querySelector('canvas'),PLATES[i].seed,PLATES[i].kind); });
+  $('#galHead').textContent=(['No','One','Two','Three','Four','Five','Six','Seven','Eight'][PLATES.length]||PLATES.length)+' plates kept';
+}
+$('#gallery').addEventListener('click',function(e){
+  var b=e.target.closest('[data-plate]'); if(!b) return;
+  openPlate=PLATES[parseInt(b.getAttribute('data-plate'),10)];
+  $('#dtN').textContent=openPlate.n; $('#dtCap').textContent=openPlate.cap;
+  $('#dtBody').textContent=openPlate.body; $('#dtWhen').textContent=openPlate.when;
+  drawPlateOn($('#dtCanvas'),openPlate.seed,openPlate.kind);
+  $('#dtKeep').classList.add('on'); $('#dtConfirm').classList.remove('on');
+  $('#galDetail').classList.add('on');
+});
+$('#dtClose').addEventListener('click',function(){ $('#galDetail').classList.remove('on'); });
+$('#dtForget').addEventListener('click',function(){ $('#dtKeep').classList.remove('on'); $('#dtConfirm').classList.add('on'); });
+$('#dtForgetNo').addEventListener('click',function(){ $('#dtConfirm').classList.remove('on'); $('#dtKeep').classList.add('on'); });
+$('#dtForgetYes').addEventListener('click',function(){
+  PLATES=PLATES.filter(function(p){return p!==openPlate;});
+  $('#galDetail').classList.remove('on'); renderGallery();
+});
+ENTER[26]=renderGallery;
+
+/* ════════════════════════════════════════════════════════════════════════
+   27 — MEMORY: age as orbital distance
+   ═══════════════════════════════════════════════════════════════════════ */
+var MEM=[
+  {id:1,t:'The cone delivery lands Tuesdays at five, back door on Skinker.',age:2,ageT:'recorded 2 days ago',ang:20},
+  {id:2,t:'Carlos closes Tuesdays and Thursdays.',age:6,ageT:'recorded 6 days ago',ang:95},
+  {id:3,t:'You are allergic to shellfish. Not to nuts.',age:21,ageT:'recorded 3 weeks ago',ang:168},
+  {id:4,t:'Campus Creamery restocks cones from Blue Ridge Dairy.',age:34,ageT:'recorded 5 weeks ago',ang:232},
+  {id:5,t:'Mom prefers Sunday evening calls, after eight.',age:58,ageT:'recorded 2 months ago',ang:290},
+  {id:6,t:'You study best in Olin, floor four, with flashcards in three piles.',age:96,ageT:'recorded 3 months ago',ang:330}
+];
+var memSel=null, memPending=null;
+/* bodies sit on rings, never between them: this week, this month, this season, older */
+var MEMRINGS=[{rx:66,ry:40},{rx:112,ry:68},{rx:158,ry:96},{rx:204,ry:124}];
+function memRadius(age){ return MEMRINGS[age<8?0:age<32?1:age<70?2:3]; }
+function renderMemory(){
+  $('#memList').innerHTML=MEM.map(function(m){
+    return '<div class="mem'+(memSel===m.id?' sel':'')+'" data-mem="'+m.id+'">'+
+      '<button class="mem-main" data-sel="'+m.id+'"><div class="mm-t">'+m.t+'</div>'+
+      '<div class="mm-a meta low">'+m.ageT+'</div></button>'+
+      (memPending===m.id
+        ? '<div class="mem-forget"><button class="btn key" data-forget-yes="'+m.id+'">Forget it</button><button class="btn ghost" data-forget-no="'+m.id+'">Keep it</button></div>'
+        : '<button class="btn ghost" data-forget="'+m.id+'">Forget</button>')+
+    '</div>';
+  }).join('');
+  $('#memMoons').innerHTML=MEM.map(function(m){
+    var r=memRadius(m.age), t=m.ang*D2R, ph=-12*D2R;
+    var x=215+r.rx*Math.cos(t)*Math.cos(ph)-r.ry*Math.sin(t)*Math.sin(ph);
+    var y=215+r.rx*Math.cos(t)*Math.sin(ph)+r.ry*Math.sin(t)*Math.cos(ph);
+    return '<button class="mem-moon'+(memSel===m.id?' sel':'')+'" data-sel="'+m.id+'" style="left:'+x.toFixed(1)+'px;top:'+y.toFixed(1)+'px" aria-label="'+m.ageT+'"><i></i></button>';
+  }).join('');
+  $('#memHead').textContent=(['No','One','Two','Three','Four','Five','Six','Seven'][MEM.length]||MEM.length)+' things Atlas keeps about you';
+}
+$('#s27').addEventListener('click',function(e){
+  var s=e.target.closest('[data-sel]');
+  if(s){ memSel=parseInt(s.getAttribute('data-sel'),10); memPending=null; renderMemory(); return; }
+  var f=e.target.closest('[data-forget]');
+  if(f){ memPending=parseInt(f.getAttribute('data-forget'),10); memSel=memPending; renderMemory(); return; }
+  var no=e.target.closest('[data-forget-no]');
+  if(no){ memPending=null; renderMemory(); return; }
+  var yes=e.target.closest('[data-forget-yes]');
+  if(yes){
+    var id=parseInt(yes.getAttribute('data-forget-yes'),10);
+    MEM=MEM.filter(function(m){return m.id!==id;}); memPending=null; memSel=null; renderMemory();
+  }
+});
+ENTER[27]=renderMemory;
+
+/* ════════════════════════════════════════════════════════════════════════
+   28 — JOBS
+   ═══════════════════════════════════════════════════════════════════════ */
+var jobPct=62, jobInt=null;
+ENTER[28]=function(){
+  if(jobInt) clearInterval(jobInt);
+  jobInt=setInterval(function(){
+    if(jobPct>=97) return;
+    jobPct=Math.min(97,jobPct+1+Math.round(Math.random()));
+    $('#jobPct').textContent=jobPct;
+    $('#jobArc').setAttribute('stroke-dashoffset',(251*(1-jobPct/100)).toFixed(0));
+    $('#jobRead').textContent='reading '+Math.min(14,Math.round(jobPct/100*14))+' of 14 sources';
+  },2400);
+};
+EXIT[28]=function(){ if(jobInt) clearInterval(jobInt); jobInt=null; };
+$('#jobStop').addEventListener('click',function(){
+  $('#jobStop').textContent='Stopped';
+  if(jobInt) clearInterval(jobInt);
+});
+
+/* ════════════════════════════════════════════════════════════════════════
+   29 / 30 — MUTED AND OFFLINE
+   ═══════════════════════════════════════════════════════════════════════ */
+var muted=false, preMute=2;
+function setMute(v){
+  muted=v; $('#micBtn').classList.toggle('muted',muted);
+  $('#micBtn').setAttribute('aria-label',muted?'Turn the microphone on':'Mute the microphone');
+}
+$('#micBtn').addEventListener('click',function(){
+  if(!muted){ preMute=current||2; setMute(true); go(29); }
+  else { setMute(false); go(preMute===29?2:preMute); }
+});
+$('#unmuteBtn').addEventListener('click',function(){ setMute(false); go(preMute===29?2:preMute); });
+ENTER[29]=function(){ if(!muted){ preMute=2; setMute(true); } };
+var tries=0;
+$('#retryBtn').addEventListener('click',function(){
+  var log=$('#retryLog'), btn=$('#retryBtn');
+  if(btn.hasAttribute('data-go')) return;
+  tries++;
+  btn.setAttribute('disabled',''); log.textContent='Trying wustl-dorm on 5 GHz…';
+  setTimeout(function(){
+    var d=new Date(), t=(d.getHours()%12||12)+':'+pad(d.getMinutes());
+    if(tries<2){
+      btn.removeAttribute('disabled');
+      log.textContent='Still nothing at '+t+'. The access point answers but hands out no address. Try the 2.4 GHz network, or move Atlas nearer the window.';
+    } else {
+      log.textContent='Back on at '+t+'. Answers, mail and research work again.';
+      btn.textContent='Back to the clock'; btn.removeAttribute('disabled');
+      btn.setAttribute('data-go','2');
+    }
+  },1500);
+});
+
+/* ════════════════════════════════════════════════════════════════════════
+   BOOT THE INSTRUMENT
+   ═══════════════════════════════════════════════════════════════════════ */
+refreshProv();
+renderThread(false);
+var deep=parseInt((location.hash||'').replace(/[^0-9]/g,''),10);
+go(deep>=1&&deep<=31?deep:1);
+if(/index|orrery/i.test(location.hash||'')){ go(2); openOrrery(); }
+window.addEventListener('hashchange',function(){
+  var d=parseInt((location.hash||'').replace(/[^0-9]/g,''),10);
+  if(d>=1&&d<=31) go(d);
+});
+})();
+</script>
+</body>
+</html>

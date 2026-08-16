@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atlas — Five Interfaces</title>
+<meta name="description" content="Five complete interface explorations for Atlas, an always-on voice assistant on a 10.1-inch touchscreen. Every screen clickable, every ground pure black.">
+<style>
+  :root {
+    --ink: #F2EFE9;
+    --dim: #8A8782;
+    --line: #1C1C1A;
+    --hud: #7FD4FA;
+    --ice: #BFE3F2;
+    --phos: #3BFF9E;
+    --bio: #5FF5E0;
+    --red: #FF2B2B;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { background: #000; color: var(--ink); }
+  body {
+    font-family: ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: clamp(24px, 6vw, 96px) clamp(20px, 5vw, 64px);
+  }
+  header { width: 100%; max-width: 1080px; margin-bottom: clamp(40px, 7vh, 88px); }
+  .kicker {
+    font-size: 11px; letter-spacing: 0.34em; text-transform: uppercase;
+    color: var(--dim); margin-bottom: 18px;
+  }
+  h1 {
+    font-size: clamp(34px, 6vw, 72px);
+    font-weight: 200; letter-spacing: -0.01em; line-height: 1.04;
+    text-wrap: balance;
+  }
+  h1 b { font-weight: 600; }
+  .lede {
+    margin-top: 20px; max-width: 62ch; color: var(--dim);
+    font-size: clamp(14px, 1.6vw, 17px); line-height: 1.65; font-weight: 300;
+  }
+  .lede em { color: var(--ink); font-style: normal; }
+  main { width: 100%; max-width: 1080px; display: flex; flex-direction: column; }
+  a.demo {
+    display: grid;
+    grid-template-columns: 3.2em 1fr auto;
+    gap: clamp(16px, 3vw, 40px);
+    align-items: baseline;
+    padding: clamp(22px, 3.4vh, 34px) 4px;
+    border-top: 1px solid var(--line);
+    text-decoration: none; color: inherit;
+    transition: background 160ms ease;
+  }
+  a.demo:last-of-type { border-bottom: 1px solid var(--line); }
+  a.demo:hover, a.demo:focus-visible { background: #0A0A09; outline: none; }
+  a.demo:focus-visible .name { text-decoration: underline; text-underline-offset: 6px; }
+  .num {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px; color: var(--dim); font-variant-numeric: tabular-nums;
+  }
+  .name {
+    font-size: clamp(22px, 3.4vw, 38px); font-weight: 250; letter-spacing: 0.01em;
+    line-height: 1.15;
+  }
+  .name .accent { display: inline-block; width: 0.55em; height: 0.55em; border-radius: 50%;
+    margin-left: 0.45em; vertical-align: baseline; transform: translateY(1px); }
+  .blurb { grid-column: 2; color: var(--dim); font-size: 14px; font-weight: 300;
+    line-height: 1.6; max-width: 58ch; margin-top: 6px; }
+  .go {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px; letter-spacing: 0.18em; color: var(--dim);
+    white-space: nowrap; align-self: center;
+  }
+  a.demo:hover .go { color: var(--ink); }
+  footer {
+    width: 100%; max-width: 1080px; margin-top: clamp(48px, 8vh, 96px);
+    color: var(--dim); font-size: 12.5px; line-height: 1.7; font-weight: 300;
+  }
+  footer p + p { margin-top: 8px; }
+  @media (max-width: 640px) {
+    a.demo { grid-template-columns: 2.2em 1fr; }
+    .go { display: none; }
+    .blurb { grid-column: 2; }
+  }
+  @media (prefers-reduced-motion: reduce) { a.demo { transition: none; } }
+</style>
+</head>
+<body>
+<header>
+  <p class="kicker">Atlas · interface explorations</p>
+  <h1>One assistant.<br><b>Five interfaces.</b></h1>
+  <p class="lede">Atlas is an always-on voice assistant living on a Raspberry Pi
+  with a 10.1″ touchscreen in a matte-black frame. These are five complete,
+  rival designs for everything it shows — <em>thirty-one screens each</em>,
+  from the idle clock to deep research with source tabs, live-ticking timers,
+  a two-phase calendar confirm, and a camera viewfinder. Every one is fully
+  clickable, and every ground is pure black, so the glass disappears into the
+  frame. Best viewed landscape; built for 1280 × 800 touch.</p>
+</header>
+
+<main>
+  <a class="demo" href="1-stark-hud.html">
+    <span class="num">01</span>
+    <span class="name">Mark VII<span class="accent" style="background:var(--hud)"></span></span>
+    <span class="go">OPEN →</span>
+    <span class="blurb">A holographic cockpit HUD on absolute void. One rule everywhere:
+    every ring encodes a real quantity — the clock's arc is progress through the day,
+    timers are targeting rings that deplete, and touch targets snap amber lock-on brackets.</span>
+  </a>
+  <a class="demo" href="2-velvet-observatory.html">
+    <span class="num">02</span>
+    <span class="name">Velvet Observatory<span class="accent" style="background:var(--ice)"></span></span>
+    <span class="go">OPEN →</span>
+    <span class="blurb">Planetarium-grade minimalism: jet black, one ice-blue voice, and an
+    enormous serif clock whose seconds hand is a small body on an ellipse. The navigator
+    is an orrery — every screen is a moon you tap.</span>
+  </a>
+  <a class="demo" href="3-phosphor-deck.html">
+    <span class="num">03</span>
+    <span class="name">Phosphor Deck<span class="accent" style="background:var(--phos)"></span></span>
+    <span class="go">OPEN →</span>
+    <span class="blurb">A glass cockpit with CRT-phosphor soul. Timers are drum counters,
+    the waveform is an oscilloscope, and anything destructive hides under a hazard-striped
+    switch guard you physically lift before you can throw it.</span>
+  </a>
+  <a class="demo" href="4-biolume.html">
+    <span class="num">04</span>
+    <span class="name">Biolume<span class="accent" style="background:var(--bio)"></span></span>
+    <span class="go">OPEN →</span>
+    <span class="blurb">The assistant as a deep-sea organism: a living particle medusa that
+    breathes at idle, reaches into your voice when listening, coils while thinking, and
+    pulses as it speaks. No rectangle in the design has four equal corners.</span>
+  </a>
+  <a class="demo" href="5-redline.html">
+    <span class="num">05</span>
+    <span class="name">Redline<span class="accent" style="background:var(--red)"></span></span>
+    <span class="go">OPEN →</span>
+    <span class="blurb">Kinetic typographic mission control — type is the interface. The clock
+    is a giant split-flap board, state changes flip like departures, and red is rationed to
+    what is live, armed, or destructive.</span>
+  </a>
+</main>
+
+<footer>
+  <p>Each demo is one self-contained file: no frameworks, no network requests, all data
+  synthetic. Timers genuinely tick, tabs switch, sound previews synthesize live, and
+  confirm flows advance — tap the corner index inside any demo to jump between all
+  thirty-one screens.</p>
+  <p>Atlas itself runs on-device: wake word, realtime voice, camera, calendar, mail,
+  and a grounding policy that would rather say "I don't know" than guess.</p>
+</footer>
+</body>
+</html>

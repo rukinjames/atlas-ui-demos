@@ -1,0 +1,2972 @@
+<!--
+================================================================================
+ATLAS — PHOSPHOR DECK
+An avionics instrument cluster for one room. 1280x800, self-contained, ground #000.
+================================================================================
+
+NAVIGATION MODEL
+  · Persistent demo navigator: the INDEX key at the top-left of the glareshield
+    (always visible, always live) opens the SCREEN INDEX overlay — an annunciator
+    wall of all 31 screens in nine columns that mirror the bezel rail, with the
+    live screen lit. Press ESC or INDEX again to close.
+  · Left bezel rail = 9 line-select keys, one per system group.
+  · Bottom command strip = soft keys for every screen inside the active group.
+  · RUN FLOW (bottom right) flies the voice sequence 2→4→5→6→7→2 unattended.
+  · Keyboard: 1-9 select rail groups, arrows step screens, ESC closes overlays.
+  · A URL hash also jumps straight to a screen (…/3-phosphor-deck.html#14).
+
+SCREEN MANIFEST — every screen, and how to reach it
+  STATE   1  Boot ............... rail STATE > soft key BOOT (also the entry screen)
+          2  Idle / clock hero .. rail STATE > IDLE  · auto after boot · flow home
+          3  Dimmed / asleep .... rail STATE > SLEEP · tap anywhere on it to wake
+          4  Wake moment ........ rail STATE > WAKE  · reached from SLEEP tap + flow
+          5  Listening .......... rail STATE > LISTEN · auto from WAKE
+          6  Thinking ........... rail STATE > THINK  · auto from LISTEN
+          7  Speaking ........... rail STATE > SPEAK  · auto from THINK; badge key
+                                  cycles all five provenance states
+  KNOW    8  Quick answer ....... rail KNOW > ANSWER
+          9  Deep research ...... rail KNOW > RESEARCH · "ASK DEEPER" on screen 8
+         10  Research results ... rail KNOW > RESULTS · auto when job 9 completes
+                                  · OPEN on the finished job card (screen 28)
+         11  Article reader ..... tap any article card on screen 10 (or soft key)
+         12  Follow-up thread ... rail KNOW > FOLLOW-UP · "ASK ABOUT THIS" on 11
+  WX     13  Weather ............ rail WX > ST. LOUIS · weather tile on idle
+  TIME   14  Timers ............. rail TIME > TIMERS · timer tile on idle
+         15  Alarms ............. rail TIME > ALARMS · alarm tile on idle
+         16  Alarm editor ....... tap any alarm row on screen 15 (or soft key)
+  CAL    17  Agenda ............. rail CAL > AGENDA · event tile on idle
+         18  Event editor ....... tap any agenda event on 17 (or soft key)
+         19  Two-phase confirm .. "SAVE CHANGES" on 18 (or soft key CONFIRM)
+  COMM   20  Contact disambig ... rail COMM > WHO?
+         21  Text compose ....... pick a candidate card on 20 (or soft key TEXT)
+         22  Inbox .............. rail COMM > INBOX
+         23  Email open ......... tap any inbox row on 22 (or soft key MESSAGE)
+         24  Email send confirm . "REPLY" on 23 (or soft key SEND MAIL)
+  VIS    25  Camera viewfinder .. rail VIS > CAMERA
+         26  Gallery + detail ... rail VIS > GALLERY · CAPTURE on 25 lands here;
+                                  tap a frame for detail, KEEP / FORGET (guarded)
+  MIND   27  Memory ............. rail MIND > MEMORY
+         28  Jobs / delegation .. rail MIND > JOBS · job lamp on idle
+  SYS    29  Muted .............. rail SYS > MUTED · MUTE lamp on the glareshield
+         30  Error / offline .... rail SYS > OFFLINE · NET lamp on the glareshield
+         31  Health ............. rail SYS > HEALTH · has a LAMP TEST key
+
+LIVE BEHAVIOUR (this demo does these, it does not depict them)
+  · The idle clock is the real system clock, on rolling drum counters.
+  · Timers count down on real JS intervals; pause, +1:00, -1:00 and expiry alarm.
+  · Alarm toggles hold state and re-sort the NEXT ALARM readout.
+  · The sound picker plays five distinct WebAudio-synthesised previews through a
+    rotary volume knob that actually scales the gain.
+  · Research tabs filter; article drill-in opens; the follow-up input appends real
+    turns with keyword-matched replies and their own provenance badges.
+  · Every two-phase confirm is a physical guarded switch: lift the guard, flip the
+    switch. Confirm flows advance to a confirmed state.
+  · Oscilloscope traces, camera noise and radar sweeps run on one shared rAF loop
+    that only draws visible canvases and stops under prefers-reduced-motion.
+================================================================================
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, initial-scale=1">
+<title>ATLAS — Phosphor Deck</title>
+<style>
+/* ═══ TOKENS ══════════════════════════════════════════════════════════════ */
+:root{
+  --phos:#3BFF9E;        /* primary trace */
+  --phos-hi:#8CFFC9;     /* trace highlight */
+  --white:#E9FFF4;       /* phosphor-white primary readout */
+  --amber:#FFB000;       /* caution / armed */
+  --amber-hi:#FFD37A;
+  --red:#FF4B3E;         /* warning */
+  --label:#5CB08A;       /* engraved label */
+  --dim:#2F6B51;         /* quiet structure */
+  --rule:#173226;        /* engraved line */
+  --panel:#050A07;       /* instrument face */
+  --panel-hi:#0A1310;    /* raised face */
+  --key:#080F0C;
+  --mono: ui-monospace, "SF Mono", "DejaVu Sans Mono", "Liberation Mono", Menlo, Consolas, "Courier New", monospace;
+  --ease-mech: cubic-bezier(.22,1.18,.36,1);
+  --ease-snap: cubic-bezier(.3,1.5,.5,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:#000;overflow:hidden}
+body{
+  font-family:var(--mono); font-size:13px; color:var(--white);
+  font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+button,input,textarea{font:inherit;color:inherit;background:none;border:none;font-variant-numeric:tabular-nums}
+button{cursor:pointer;-webkit-tap-highlight-color:transparent}
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:2px}
+::selection{background:var(--phos);color:#000}
+
+/* ═══ STAGE — 1280x800 deck, letterboxed on pure black ════════════════════ */
+#stage{position:fixed;inset:0;background:#000;display:grid;place-items:center}
+#deck{
+  position:relative;width:1280px;height:800px;background:#000;
+  transform-origin:50% 50%;
+  display:grid;
+  grid-template-columns:78px 1fr;
+  grid-template-rows:54px 1fr 66px;
+}
+
+/* ═══ ENGRAVED PRIMITIVES ═════════════════════════════════════════════════ */
+.tex{background-image:repeating-linear-gradient(180deg,rgba(59,255,158,.030) 0 1px,transparent 1px 3px)}
+.stencil{
+  font-weight:700;text-transform:uppercase;letter-spacing:.30em;
+  --sc:var(--phos);
+  background-image:repeating-linear-gradient(180deg,var(--sc) 0 .24em,transparent .24em .30em);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.sc-w{--sc:var(--white)} .sc-a{--sc:var(--amber)} .sc-l{--sc:var(--label)}
+.sc-d{--sc:var(--dim)} .sc-r{--sc:var(--red)}
+.lbl{font-size:9.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--label);font-weight:600}
+.lbl-d{color:var(--dim)}
+.mini{font-size:10px;letter-spacing:.12em;color:var(--label)}
+.hint{font-size:11px;letter-spacing:.06em;color:var(--label);line-height:1.65}
+.panel{background:var(--panel);border:1px solid var(--rule);border-radius:3px;position:relative}
+.panel::before,.panel::after{
+  content:"";position:absolute;width:3px;height:3px;border-radius:50%;
+  background:radial-gradient(circle at 35% 35%,#243b30,#060b08);
+}
+.panel::before{left:5px;top:5px} .panel::after{right:5px;bottom:5px}
+.panel.noscrew::before,.panel.noscrew::after{display:none}
+hr.rule{border:0;border-top:1px solid var(--rule);margin:0}
+.vr{width:1px;background:var(--rule);align-self:stretch}
+
+/* ═══ DRUM COUNTER ════════════════════════════════════════════════════════ */
+.drum{
+  display:inline-block;width:.60em;height:1em;line-height:1;overflow:hidden;
+  position:relative;vertical-align:top;
+}
+.drum i{
+  position:absolute;left:0;top:0;font-style:normal;display:block;
+  transform:translateY(calc(var(--d,0) * -1em));
+  transition:transform .34s var(--ease-mech);
+}
+.drum i b{display:block;height:1em;line-height:1;font-weight:inherit;text-align:center}
+.drum.nosnap i{transition:none}
+.numbox{display:inline-flex;align-items:flex-start;line-height:1}
+.numbox .sep{display:inline-block;width:.42em;text-align:center;font-style:normal;opacity:.7}
+.numbox.tight .drum{width:.58em}
+.glow{text-shadow:0 0 14px rgba(59,255,158,.30)}
+.glow-w{text-shadow:0 0 16px rgba(180,255,220,.24)}
+.glow-a{text-shadow:0 0 14px rgba(255,176,0,.28)}
+
+/* ═══ LAMPS & ANNUNCIATORS ════════════════════════════════════════════════ */
+.lamp{
+  display:inline-flex;align-items:center;gap:7px;padding:5px 9px;border-radius:2px;
+  border:1px solid var(--rule);background:#040807;
+  font-size:9.5px;letter-spacing:.20em;text-transform:uppercase;font-weight:700;color:var(--dim);
+}
+.lamp .bulb{width:7px;height:7px;border-radius:50%;background:#0d1a14;border:1px solid #1b3328;flex:0 0 auto}
+.lamp.on{color:var(--phos);border-color:#1c4c36;background:rgba(59,255,158,.055)}
+.lamp.on .bulb{background:var(--phos);border-color:var(--phos);box-shadow:0 0 8px rgba(59,255,158,.75)}
+.lamp.cau{color:var(--amber);border-color:#4a3505;background:rgba(255,176,0,.06)}
+.lamp.cau .bulb{background:var(--amber);border-color:var(--amber);box-shadow:0 0 8px rgba(255,176,0,.75)}
+.lamp.warn{color:var(--red);border-color:#4d1a16;background:rgba(255,75,62,.07)}
+.lamp.warn .bulb{background:var(--red);border-color:var(--red);box-shadow:0 0 8px rgba(255,75,62,.8)}
+.lamp.wht{color:var(--white);border-color:#2b4a3d;background:rgba(233,255,244,.05)}
+.lamp.wht .bulb{background:var(--white);border-color:var(--white);box-shadow:0 0 8px rgba(233,255,244,.6)}
+
+/* ═══ KEYS ════════════════════════════════════════════════════════════════ */
+.key{
+  min-height:48px;padding:8px 14px;border-radius:3px;
+  border:1px solid var(--rule);border-top-color:#20392e;
+  background:linear-gradient(180deg,#0b1310 0%,#050907 100%);
+  color:var(--label);font-size:10px;letter-spacing:.22em;text-transform:uppercase;font-weight:700;
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  transition:transform .10s linear,background-color .16s linear,color .16s linear,border-color .16s linear;
+}
+.key:active{transform:translateY(1px)}
+.key:hover{color:var(--phos);border-color:#204d38}
+.key.sel{color:var(--phos);border-color:#2a6647;background:linear-gradient(180deg,#0d2018 0%,#061009 100%)}
+.key.pri{color:var(--phos);border-color:#2a6647}
+.key.arm{color:var(--amber);border-color:#5a4108;background:linear-gradient(180deg,#1a1204 0%,#0a0702 100%)}
+.key.dgr{color:var(--red);border-color:#54211c}
+.key.off{opacity:.42;pointer-events:none}
+.key.sm{min-height:48px;padding:6px 10px;font-size:9.5px;letter-spacing:.16em}
+
+/* ═══ TOGGLE SWITCH (rocker) ══════════════════════════════════════════════ */
+.sw{
+  width:66px;height:48px;flex:0 0 auto;position:relative;border-radius:3px;
+  border:1px solid var(--rule);background:#040706;
+  display:grid;place-items:center;
+}
+.sw .track{width:46px;height:22px;border-radius:2px;background:#0a1310;border:1px solid #1a2f26;position:relative;overflow:hidden}
+.sw .lever{
+  position:absolute;top:1px;left:1px;width:20px;height:18px;border-radius:1px;
+  background:linear-gradient(180deg,#2b3b34,#121b17);border:1px solid #335445;
+  transition:transform .22s var(--ease-snap),background-color .22s linear,border-color .22s linear;
+}
+.sw[aria-checked="true"] .track{background:rgba(59,255,158,.13);border-color:#2c6c4c}
+.sw[aria-checked="true"] .lever{transform:translateX(22px);background:linear-gradient(180deg,var(--phos-hi),#1f9c62);border-color:var(--phos)}
+.sw .st{position:absolute;bottom:2px;font-size:7.5px;letter-spacing:.14em;color:var(--dim);font-weight:700}
+.sw[aria-checked="true"] .st{color:var(--phos)}
+
+/* ═══ GUARDED SWITCH — the signature two-phase confirm ════════════════════ */
+.guard{
+  position:relative;width:100%;max-width:420px;height:118px;
+  perspective:760px;perspective-origin:50% 0%;
+}
+.guard .well{
+  position:absolute;inset:0;border:1px solid var(--rule);border-radius:3px;
+  background:linear-gradient(180deg,#070d0a,#030605);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+}
+.guard .gsw{
+  width:150px;height:52px;border-radius:3px;border:1px solid #2a6647;
+  background:linear-gradient(180deg,#0d2018,#061009);position:relative;overflow:hidden;
+  display:grid;place-items:center;
+}
+.guard .gsw .bat{
+  position:absolute;left:4px;top:4px;width:70px;height:42px;border-radius:2px;
+  background:linear-gradient(180deg,#335445,#16241d);border:1px solid #45705e;
+  transition:transform .18s var(--ease-snap),background-color .2s linear;
+}
+.guard .gsw .txt{position:relative;font-size:10px;letter-spacing:.22em;font-weight:700;color:var(--phos);z-index:2;pointer-events:none}
+.guard[data-phase="done"] .gsw .bat{transform:translateX(72px);background:linear-gradient(180deg,var(--phos-hi),#1c8f59)}
+.guard .cover{
+  position:absolute;inset:0;border-radius:3px;border:1px solid #5a4108;
+  background:
+    repeating-linear-gradient(45deg,rgba(255,176,0,.20) 0 9px,rgba(0,0,0,0) 9px 18px),
+    linear-gradient(180deg,#141005,#080602);
+  transform-origin:50% 0%;z-index:5;
+  transition:transform .46s var(--ease-mech),opacity .3s linear;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+  color:var(--amber);
+}
+.guard[data-phase="open"] .cover,.guard[data-phase="done"] .cover{transform:rotateX(-104deg);opacity:.55}
+.guard .cover .hinge{position:absolute;top:-1px;left:14%;right:14%;height:3px;background:linear-gradient(90deg,transparent,#5a4108,transparent)}
+.guard .cover b{font-size:11px;letter-spacing:.3em;font-weight:700;background:#050301;
+  padding:7px 17px;border-radius:2px;border:1px solid #7a5809;color:var(--amber-hi)}
+.guard .cover i{font-style:normal;font-size:9px;letter-spacing:.18em;color:var(--amber);
+  background:#050301;padding:4px 13px;border-radius:2px}
+.guard .cancel{position:absolute;right:-108px;top:34px;width:96px}
+
+/* ═══ ROTARY KNOB ═════════════════════════════════════════════════════════ */
+.knob{
+  width:104px;height:104px;position:relative;flex:0 0 auto;touch-action:none;
+  display:grid;place-items:center;border-radius:50%;
+}
+.knob .ring{position:absolute;inset:0}
+.knob .dial{
+  width:66px;height:66px;border-radius:50%;
+  background:radial-gradient(circle at 38% 30%,#17241e 0%,#080d0b 62%,#040706 100%);
+  border:1px solid #24463a;position:relative;
+  transition:transform .18s var(--ease-snap);
+}
+.knob .dial .mark{position:absolute;left:50%;top:5px;width:2px;height:20px;margin-left:-1px;background:var(--phos);box-shadow:0 0 7px rgba(59,255,158,.8)}
+.knob .dial .knurl{position:absolute;inset:6px;border-radius:50%;
+  background:repeating-conic-gradient(from 0deg,rgba(59,255,158,.09) 0deg 3deg,transparent 3deg 9deg)}
+
+/* ═══ NEEDLE ══════════════════════════════════════════════════════════════ */
+.needle{position:absolute;left:50%;bottom:50%;transform-origin:50% 100%;
+  transition:transform .72s cubic-bezier(.34,1.5,.5,1)}
+
+/* ═══ SCOPE ═══════════════════════════════════════════════════════════════ */
+.scope{position:relative;background:#000;border:1px solid var(--rule);border-radius:3px;overflow:hidden}
+.scope canvas{display:block;width:100%;height:100%}
+.scope .still{display:none;position:absolute;inset:0;width:100%;height:100%}
+@media (prefers-reduced-motion: reduce){
+  .scope canvas{display:none} .scope .still{display:block}
+}
+.scope .grat{position:absolute;inset:0;pointer-events:none;
+  background-image:
+    repeating-linear-gradient(90deg,rgba(59,255,158,.07) 0 1px,transparent 1px 40px),
+    repeating-linear-gradient(180deg,rgba(59,255,158,.07) 0 1px,transparent 1px 28px)}
+
+/* ═══ PROVENANCE ANNUNCIATOR ══════════════════════════════════════════════ */
+.prov{
+  display:inline-flex;align-items:stretch;border:1px solid var(--rule);border-radius:3px;
+  background:#040807;overflow:hidden;flex:0 0 auto;
+}
+.prov .pl{display:flex;align-items:center;gap:9px;padding:9px 13px}
+.prov .pb{width:9px;height:9px;border-radius:50%;background:#0d1a14;border:1px solid #1b3328;flex:0 0 auto}
+.prov .pt{display:flex;flex-direction:column;gap:3px}
+.prov .pt b{font-size:10px;letter-spacing:.24em;font-weight:700;color:var(--dim)}
+.prov .pt i{font-style:normal;font-size:8.5px;letter-spacing:.20em;color:var(--dim);opacity:.8}
+.prov .pn{
+  display:flex;align-items:center;padding:0 13px;border-left:1px solid var(--rule);
+  font-size:19px;font-weight:700;color:var(--dim);
+}
+.prov[data-p="sourced"]{border-color:#1c4c36;background:rgba(59,255,158,.045)}
+.prov[data-p="sourced"] .pb{background:var(--phos);border-color:var(--phos);box-shadow:0 0 9px rgba(59,255,158,.8)}
+.prov[data-p="sourced"] .pt b,.prov[data-p="sourced"] .pn{color:var(--phos)}
+.prov[data-p="sourced"] .pt i{color:var(--label)}
+.prov[data-p="recalled"]{border-color:#4a3505;background:rgba(255,176,0,.05)}
+.prov[data-p="recalled"] .pb{background:var(--amber);border-color:var(--amber);box-shadow:0 0 9px rgba(255,176,0,.8)}
+.prov[data-p="recalled"] .pt b,.prov[data-p="recalled"] .pn{color:var(--amber)}
+.prov[data-p="recalled"] .pt i{color:#a2751a}
+.prov[data-p="general"]{border-color:#2b4a3d;background:rgba(233,255,244,.04)}
+.prov[data-p="general"] .pb{background:var(--white);border-color:var(--white);box-shadow:0 0 9px rgba(233,255,244,.55)}
+.prov[data-p="general"] .pt b,.prov[data-p="general"] .pn{color:var(--white)}
+.prov[data-p="general"] .pt i{color:var(--label)}
+.prov[data-p="none"]{border-color:#22332c;background:#020403}
+.prov[data-p="none"] .pb{background:#000;border:1px solid #2b4438;box-shadow:none}
+.prov[data-p="none"] .pt b{color:#4a6f5e}
+.prov[data-p="error"]{border-color:#54211c;background:rgba(255,75,62,.06)}
+.prov[data-p="error"] .pb{background:var(--red);border-color:var(--red);box-shadow:0 0 9px rgba(255,75,62,.85)}
+.prov[data-p="error"] .pt b,.prov[data-p="error"] .pn{color:var(--red)}
+.prov[data-p="error"] .pt i{color:#b3564d}
+.prov.sm .pl{padding:5px 9px;gap:7px} .prov.sm .pb{width:7px;height:7px}
+.prov.sm .pt b{font-size:8.5px;letter-spacing:.18em} .prov.sm .pt i{font-size:7.5px}
+.prov.sm .pn{padding:0 9px;font-size:13px}
+
+/* ═══ GLARESHIELD ═════════════════════════════════════════════════════════ */
+#glare{
+  grid-column:1/3;grid-row:1;background:#000;border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;gap:14px;padding:0 12px 0 0;position:relative;z-index:30;
+}
+#glare .fade{display:flex;align-items:center;gap:14px;flex:1;transition:opacity .4s linear}
+#indexKey{
+  width:78px;height:53px;border-right:1px solid var(--rule);flex:0 0 auto;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  color:var(--label);transition:color .16s linear,background-color .16s linear;
+}
+#indexKey:hover,#indexKey.act{color:var(--phos);background:rgba(59,255,158,.05)}
+#indexKey .bars{display:flex;flex-direction:column;gap:2px}
+#indexKey .bars s{display:block;width:16px;height:2px;background:currentColor;text-decoration:none}
+#indexKey em{font-style:normal;font-size:8px;letter-spacing:.2em;font-weight:700}
+#wordmark{font-size:13px;letter-spacing:.44em;font-weight:700;padding-left:2px}
+#glare .lamps{display:flex;gap:5px}
+#stateAnn{
+  margin-left:auto;display:flex;align-items:center;gap:11px;padding:6px 14px;border-radius:2px;
+  border:1px solid #1c4c36;background:rgba(59,255,158,.05);
+}
+#stateAnn .bulb{width:8px;height:8px;border-radius:50%;background:var(--phos);box-shadow:0 0 9px rgba(59,255,158,.8)}
+#stateAnn b{font-size:12px;letter-spacing:.30em;font-weight:700;color:var(--phos)}
+#stateAnn.cau{border-color:#4a3505;background:rgba(255,176,0,.06)}
+#stateAnn.cau .bulb{background:var(--amber);box-shadow:0 0 9px rgba(255,176,0,.8)}
+#stateAnn.cau b{color:var(--amber)}
+#stateAnn.warn{border-color:#54211c;background:rgba(255,75,62,.07)}
+#stateAnn.warn .bulb{background:var(--red);box-shadow:0 0 9px rgba(255,75,62,.85)}
+#stateAnn.warn b{color:var(--red)}
+#glareClock{display:flex;align-items:center;gap:12px;color:var(--white)}
+#glareClock .t{font-size:17px;font-weight:600}
+#glareClock .d{font-size:9.5px;letter-spacing:.18em;color:var(--label);text-align:right;line-height:1.5}
+
+/* ═══ RAIL ════════════════════════════════════════════════════════════════ */
+#rail{
+  grid-column:1;grid-row:2/4;background:#000;border-right:1px solid var(--rule);
+  display:flex;flex-direction:column;position:relative;overflow:hidden;z-index:20;
+  transition:opacity .4s linear;
+}
+#rail .rk{
+  flex:1;border-bottom:1px solid var(--rule);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:6px;color:var(--dim);
+  transition:color .18s linear,background-color .18s linear;position:relative;
+}
+#rail .rk .bulb{width:6px;height:6px;border-radius:50%;background:#0d1a14;border:1px solid #1b3328;transition:background-color .2s linear,box-shadow .2s linear}
+#rail .rk em{font-style:normal;font-size:9px;letter-spacing:.16em;font-weight:700}
+#rail .rk u{text-decoration:none;font-size:7.5px;letter-spacing:.1em;color:#254e3c}
+#rail .rk:hover{color:var(--label)}
+#rail .rk.sel{color:var(--phos);background:rgba(59,255,158,.055)}
+#rail .rk.sel .bulb{background:var(--phos);border-color:var(--phos);box-shadow:0 0 8px rgba(59,255,158,.8)}
+#rail .rk.sel::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:2px;background:var(--phos);box-shadow:0 0 8px rgba(59,255,158,.8)}
+#railSweep{position:absolute;left:0;right:0;top:0;height:64px;pointer-events:none;
+  background:linear-gradient(180deg,transparent,rgba(59,255,158,.10),transparent);
+  animation:railsweep 7s linear infinite}
+@keyframes railsweep{0%{transform:translateY(-70px);opacity:0}
+  8%{opacity:1}70%{opacity:1}100%{transform:translateY(740px);opacity:0}}
+
+/* ═══ CRT ═════════════════════════════════════════════════════════════════ */
+#crt{grid-column:2;grid-row:2;position:relative;background:#000;overflow:hidden;padding:9px}
+#crtFrame{position:absolute;inset:4px;border:1px solid var(--rule);border-radius:5px;pointer-events:none}
+#crtFrame s{position:absolute;width:5px;height:5px;border-radius:50%;text-decoration:none;
+  background:radial-gradient(circle at 34% 32%,#2b4638,#050907)}
+#crtFrame s:nth-child(1){left:6px;top:6px} #crtFrame s:nth-child(2){right:6px;top:6px}
+#crtFrame s:nth-child(3){left:6px;bottom:6px} #crtFrame s:nth-child(4){right:6px;bottom:6px}
+#screens{position:absolute;inset:14px;}
+.screen{
+  position:absolute;inset:0;opacity:0;pointer-events:none;
+  transform:scale(.996) translateY(5px);
+  transition:opacity .26s linear,transform .3s var(--ease-mech);
+  display:flex;flex-direction:column;
+}
+.screen.on{opacity:1;transform:none;pointer-events:auto}
+.shead{display:flex;align-items:baseline;gap:14px;padding-bottom:9px;border-bottom:1px solid var(--rule);margin-bottom:13px;flex:0 0 auto}
+.shead h1{font-size:14px;line-height:1.3}
+.shead .no{font-size:9px;letter-spacing:.2em;color:var(--dim);font-weight:700}
+.shead .sub{margin-left:auto;font-size:10px;letter-spacing:.14em;color:var(--label)}
+.sbody{flex:1;min-height:0;display:flex;flex-direction:column}
+.scroll{overflow-y:auto;overscroll-behavior:contain;min-height:0}
+.scroll.col > *{flex:0 0 auto}
+.scroll::-webkit-scrollbar{width:6px}
+.scroll::-webkit-scrollbar-track{background:#040706}
+.scroll::-webkit-scrollbar-thumb{background:#1c4c36;border-radius:3px}
+
+/* ═══ COMMAND STRIP ═══════════════════════════════════════════════════════ */
+#cmd{
+  grid-column:2;grid-row:3;background:#000;border-top:1px solid var(--rule);
+  display:flex;align-items:center;gap:8px;padding:0 12px;transition:opacity .4s linear;z-index:20;
+}
+#softKeys{display:flex;gap:7px;align-items:center;flex:1;min-width:0;overflow:hidden}
+#softKeys .key{flex:0 1 auto;min-width:92px;height:48px;min-height:48px;flex-direction:column;gap:3px;padding:6px 10px}
+#softKeys .key u{text-decoration:none;font-size:7.5px;letter-spacing:.1em;color:#2a5b47}
+#softKeys .key.sel u{color:#3f8a68}
+#cmdRight{display:flex;gap:8px;align-items:center;flex:0 0 auto}
+
+/* ═══ MODES: boot / sleep dim the chrome ══════════════════════════════════ */
+body.chrome-off #rail,body.chrome-off #cmd{opacity:.06;pointer-events:none}
+body.chrome-off #glare .fade{opacity:.10}
+body.chrome-off #crtFrame{opacity:.15}
+
+/* ═══ SCREEN INDEX OVERLAY ════════════════════════════════════════════════ */
+#index{
+  position:absolute;inset:0;background:#000;z-index:60;opacity:0;pointer-events:none;
+  transition:opacity .22s linear;display:flex;flex-direction:column;padding:16px 18px;
+}
+#index.on{opacity:1;pointer-events:auto}
+#index .ihead{display:flex;align-items:baseline;gap:16px;padding-bottom:11px;border-bottom:1px solid var(--rule)}
+#index .igrid{flex:1;min-height:0;display:grid;grid-template-columns:repeat(9,1fr);grid-auto-rows:1fr;gap:7px;padding-top:13px}
+#index .grp{border:1px solid var(--rule);border-radius:3px;background:var(--panel);padding:7px}
+#index .grp > .lbl{display:block;margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid var(--rule);text-align:center}
+#index .grp .key{width:100%;min-height:48px;justify-content:flex-start;gap:6px;margin-bottom:4px;padding:5px 6px}
+#index .grp .key:last-child{margin-bottom:0}
+#index .grp .key .n{font-size:11px;color:var(--dim);font-weight:700;width:15px;text-align:right;flex:0 0 auto}
+#index .grp .key.sel .n{color:var(--phos)}
+#index .grp .key .t{letter-spacing:.08em;font-size:9px;text-align:left;line-height:1.35;flex:1;min-width:0}
+#index .ifoot{padding-top:11px;border-top:1px solid var(--rule);display:flex;align-items:center;gap:14px;margin-top:11px}
+
+/* ═══ MODAL / TOAST ═══════════════════════════════════════════════════════ */
+#toast{
+  position:absolute;left:50%;bottom:82px;transform:translate(-50%,14px);z-index:70;
+  opacity:0;pointer-events:none;transition:opacity .2s linear,transform .28s var(--ease-mech);
+  border:1px solid #1c4c36;background:#020403;border-radius:3px;padding:11px 18px;
+  display:flex;align-items:center;gap:11px;
+}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+#toast .bulb{width:7px;height:7px;border-radius:50%;background:var(--phos);box-shadow:0 0 9px rgba(59,255,158,.85)}
+#toast b{font-size:10px;letter-spacing:.2em;font-weight:700;color:var(--phos)}
+#toast.cau{border-color:#4a3505} #toast.cau .bulb{background:var(--amber);box-shadow:0 0 9px rgba(255,176,0,.85)} #toast.cau b{color:var(--amber)}
+#toast.warn{border-color:#54211c} #toast.warn .bulb{background:var(--red);box-shadow:0 0 9px rgba(255,75,62,.85)} #toast.warn b{color:var(--red)}
+
+/* ═══ SHARED LAYOUT HELPERS ═══════════════════════════════════════════════ */
+.row{display:flex;flex-direction:row;gap:11px} .col{display:flex;flex-direction:column;gap:11px}
+.grow{flex:1;min-width:0;min-height:0} .center{align-items:center} .between{justify-content:space-between}
+.wrap{flex-wrap:wrap} .g6{gap:6px} .g8{gap:8px} .g14{gap:14px} .g18{gap:18px}
+.pad{padding:13px} .pad-lg{padding:17px}
+.chip{
+  display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:2px;
+  border:1px solid var(--rule);background:#040807;font-size:9px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--label);font-weight:600;
+}
+.chip.on{color:var(--phos);border-color:#1c4c36;background:rgba(59,255,158,.06)}
+.chip.a{color:var(--amber);border-color:#4a3505;background:rgba(255,176,0,.06)}
+button.chip{min-height:48px;padding:0 11px;border-top-color:#20392e;
+  background:linear-gradient(180deg,#0a1210 0%,#040706 100%)}
+button.chip.on{background:linear-gradient(180deg,#0d2018 0%,#061009 100%);border-color:#2a6647}
+button.chip:active{transform:translateY(1px)}
+button.grow,.key.grow{min-height:48px}
+.big{font-size:40px;font-weight:700;line-height:1}
+.med{font-size:26px;font-weight:700;line-height:1}
+.readout{color:var(--white);font-size:14px}
+.quiet{color:var(--label)}
+.tick-row{display:flex;gap:2px}
+.tick-row s{text-decoration:none;width:5px;height:13px;background:#12241c;border-radius:1px}
+.tick-row s.lit{background:var(--phos);box-shadow:0 0 6px rgba(59,255,158,.6)}
+.tick-row s.cau{background:var(--amber);box-shadow:0 0 6px rgba(255,176,0,.6)}
+.inp{
+  border:1px solid var(--rule);background:#040807;border-radius:3px;padding:12px 13px;
+  color:var(--white);font-size:13px;width:100%;min-height:48px;
+}
+.inp:focus{border-color:#2a6647}
+.inp::placeholder{color:#2f6b51}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;
+    transition-duration:.001ms !important}
+}
+/* ═══ 1 BOOT ══════════════════════════════════════════════════════════════ */
+#sc1 .bootwrap{flex:1;display:grid;grid-template-columns:1fr 340px;gap:34px;align-items:center;padding:0 30px}
+#sc1 .bmark{font-size:52px;letter-spacing:.34em;line-height:1.1}
+#sc1 .bsub{margin-top:14px;font-size:11px;letter-spacing:.30em;color:var(--label)}
+#sc1 .bbar{margin-top:26px;display:flex;gap:3px}
+#sc1 .bbar s{text-decoration:none;flex:1;height:16px;background:#0c1a14;border-radius:1px;transition:background-color .12s linear}
+#sc1 .bbar s.lit{background:var(--phos);box-shadow:0 0 7px rgba(59,255,158,.55)}
+#sc1 .bpct{margin-top:20px;display:flex;align-items:flex-end;gap:12px}
+#sc1 .bpct .n{font-size:64px;font-weight:700;color:var(--white)}
+#sc1 .post{display:flex;flex-direction:column;gap:0;border:1px solid var(--rule);border-radius:3px;background:var(--panel)}
+#sc1 .post .r{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--rule);font-size:10px;letter-spacing:.16em;color:var(--dim);transition:color .2s linear}
+#sc1 .post .r:last-child{border-bottom:0}
+#sc1 .post .r .bulb{width:6px;height:6px;border-radius:50%;background:#0d1a14;border:1px solid #1b3328;flex:0 0 auto}
+#sc1 .post .r .ok{margin-left:auto;font-size:9px;letter-spacing:.14em;opacity:0;transition:opacity .2s linear}
+#sc1 .post .r.up{color:var(--phos)}
+#sc1 .post .r.up .bulb{background:var(--phos);border-color:var(--phos);box-shadow:0 0 7px rgba(59,255,158,.7)}
+#sc1 .post .r.up .ok{opacity:1}
+#sc1 .bfoot{position:absolute;left:30px;right:30px;bottom:6px;display:flex;justify-content:space-between;font-size:9px;letter-spacing:.2em;color:#25523f}
+
+/* ═══ 2 IDLE — the clock is the hero ══════════════════════════════════════ */
+#sc2{display:block}
+#sc2 .hero{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:534px;height:534px;display:grid;place-items:center}
+#sc2 .hero svg{position:absolute;inset:0}
+#sc2 .secneedle{position:absolute;left:50%;top:calc(50% - 267px);width:2px;height:267px;margin-left:-1px;
+  transform-origin:50% 100%;transform:rotate(0deg);transition:transform .22s var(--ease-snap)}
+#sc2 .secneedle s{display:block;text-decoration:none;position:absolute;top:2px;left:-1px;width:4px;height:44px;background:var(--phos);box-shadow:0 0 10px rgba(59,255,158,.85);border-radius:2px}
+#sc2 .clockface{position:relative;text-align:center;z-index:2}
+#sc2 .cnum{font-size:148px;font-weight:700;color:var(--white);letter-spacing:-.01em}
+#sc2 .cnum .sep{width:.36em;opacity:.55;color:var(--phos)}
+#sc2 .csec{position:absolute;right:-58px;bottom:26px;font-size:34px;font-weight:700;color:var(--phos)}
+#sc2 .cdate{margin-top:12px;font-size:12px;letter-spacing:.42em}
+#sc2 .cwake{margin-top:22px;font-size:9.5px;letter-spacing:.3em;color:var(--dim)}
+#sc2 .corner{position:absolute;width:250px}
+#sc2 .corner.tl{left:0;top:0} #sc2 .corner.tr{right:0;top:0}
+#sc2 .corner.bl{left:0;bottom:0} #sc2 .corner.br{right:0;bottom:0}
+#sc2 .corner .key{width:100%;flex-direction:column;align-items:flex-start;gap:7px;padding:11px 13px;min-height:74px}
+#sc2 .corner .key .kv{font-size:20px;font-weight:700;color:var(--white);letter-spacing:.02em;text-transform:none}
+#sc2 .corner .key .kx{font-size:9px;letter-spacing:.14em;color:var(--label);text-transform:uppercase}
+#sc2 .corner .key .top{display:flex;width:100%;align-items:center;justify-content:space-between}
+
+/* ═══ 3 SLEEP ═════════════════════════════════════════════════════════════ */
+#sc3{display:block}
+#sc3 .dimclock{position:absolute;left:50%;top:50%;text-align:center;
+  transform:translate(-50%,-50%);transition:transform 22s linear}
+#sc3 .dimclock .t{font-size:74px;font-weight:700;color:#1c8f59}
+#sc3 .dimclock .s{margin-top:12px;font-size:9px;letter-spacing:.34em;color:#12503a}
+#sc3 .tapall{position:absolute;inset:0;width:100%;height:100%}
+
+/* ═══ 4 WAKE ══════════════════════════════════════════════════════════════ */
+#sc4{display:block}
+#sc4 .wcenter{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;place-items:center;width:460px;height:460px}
+#sc4 .ring{position:absolute;border:2px solid var(--phos);border-radius:50%;width:140px;height:140px;opacity:0}
+#sc4.on .ring{animation:wring 1.35s var(--ease-mech) forwards}
+#sc4.on .ring:nth-child(2){animation-delay:.13s} #sc4.on .ring:nth-child(3){animation-delay:.26s}
+@keyframes wring{0%{transform:scale(.35);opacity:0}22%{opacity:.95}100%{transform:scale(3.15);opacity:0}}
+#sc4 .wmark{position:relative;text-align:center;z-index:2}
+#sc4 .wmark .big{font-size:66px;letter-spacing:.36em}
+#sc4 .wmark .sub{margin-top:16px;font-size:10px;letter-spacing:.3em;color:var(--label)}
+#sc4 .conf{position:absolute;left:50%;bottom:34px;transform:translateX(-50%);display:flex;align-items:center;gap:16px}
+
+/* ═══ 5 LISTEN / 7 SPEAK ══════════════════════════════════════════════════ */
+.talkbar{height:172px;min-width:0}
+.transcript{font-size:30px;line-height:1.42;color:var(--white);font-weight:500;letter-spacing:.005em}
+.transcript .w{opacity:0;transition:opacity .16s linear}
+.transcript .w.in{opacity:1}
+.transcript .w.hyp{color:var(--label);font-style:italic}
+.transcript .cursor{display:inline-block;width:12px;height:3px;background:var(--phos);vertical-align:baseline;
+  margin-left:5px;animation:blink 1.05s steps(1) infinite}
+@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:.15}}
+.vu{display:flex;flex-direction:column-reverse;gap:2px;width:16px}
+.vu s{text-decoration:none;height:6px;background:#0e1e17;border-radius:1px;transition:background-color .07s linear}
+.vu s.lit{background:var(--phos)} .vu s.lit.hi{background:var(--amber)} .vu s.lit.pk{background:var(--red)}
+
+/* ═══ 6 THINKING ══════════════════════════════════════════════════════════ */
+#sc6 .stages{display:flex;flex-direction:column;gap:0;border:1px solid var(--rule);border-radius:3px;background:var(--panel)}
+#sc6 .stages .st{display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid var(--rule);color:var(--dim);transition:color .2s linear}
+#sc6 .stages .st:last-child{border-bottom:0}
+#sc6 .stages .st .bulb{width:7px;height:7px;border-radius:50%;background:#0d1a14;border:1px solid #1b3328;flex:0 0 auto}
+#sc6 .stages .st b{font-size:10px;letter-spacing:.2em;font-weight:700;width:150px;flex:0 0 auto}
+#sc6 .stages .st .dt{font-size:11px;color:inherit;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#sc6 .stages .st .ms{margin-left:auto;font-size:10px;opacity:0;transition:opacity .2s linear}
+#sc6 .stages .st.up{color:var(--phos)}
+#sc6 .stages .st.up .bulb{background:var(--phos);border-color:var(--phos);box-shadow:0 0 7px rgba(59,255,158,.7)}
+#sc6 .stages .st.up .ms{opacity:1}
+#sc6 .stages .st.run{color:var(--amber)}
+#sc6 .stages .st.run .bulb{background:var(--amber);border-color:var(--amber);box-shadow:0 0 7px rgba(255,176,0,.75)}
+.tcall{display:flex;align-items:center;gap:14px;padding:11px 14px;border-bottom:1px solid var(--rule);opacity:.35;transition:opacity .25s linear}
+.tcall:last-child{border-bottom:0}
+.tcall.on{opacity:1}
+.tcall .tn{width:170px;flex:0 0 auto;font-size:11px;letter-spacing:.06em;color:var(--phos);font-weight:600}
+.tcall .ta{flex:1;min-width:0;font-size:11px;color:var(--label);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tcall .tr{flex:0 0 auto;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--white);font-weight:600}
+.tcall .tms{width:56px;flex:0 0 auto;text-align:right;font-size:10px;color:var(--dim)}
+.radar{position:relative;width:236px;height:236px;flex:0 0 auto}
+.radar svg{position:absolute;inset:0}
+.radar .sweep{position:absolute;inset:0;border-radius:50%;overflow:hidden}
+.radar .sweep i{position:absolute;left:50%;top:50%;width:50%;height:50%;transform-origin:0 0;
+  background:conic-gradient(from 0deg,rgba(59,255,158,.34),rgba(59,255,158,0) 62deg);
+  animation:spin 2.4s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.radar .rc{position:absolute;inset:0;display:grid;place-items:center;text-align:center}
+
+/* ═══ 8-12 KNOWLEDGE ══════════════════════════════════════════════════════ */
+.qcard{border:1px solid var(--rule);border-radius:3px;background:var(--panel);padding:14px}
+.excerpt{border-left:2px solid #2f7f58;padding:2px 0 2px 14px;margin:9px 0}
+.excerpt q{display:block;font-size:13px;line-height:1.66;color:var(--white);quotes:'"' '"'}
+.excerpt .src{margin-top:8px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.tabs{display:flex;gap:5px;border-bottom:1px solid var(--rule);padding-bottom:9px;flex:0 0 auto}
+.tabs .key{min-height:48px;flex-direction:column;gap:3px;padding:6px 14px}
+.tabs .key u{text-decoration:none;font-size:8px;color:#2a5b47;letter-spacing:.1em}
+.tabs .key.sel u{color:#3f8a68}
+.acard{
+  border:1px solid var(--rule);border-radius:3px;background:var(--panel);padding:12px 13px;
+  display:flex;gap:13px;align-items:flex-start;width:100%;text-align:left;min-height:48px;
+  transition:border-color .16s linear,background-color .16s linear;
+}
+.acard:hover{border-color:#204d38;background:var(--panel-hi)}
+.acard .rel{flex:0 0 auto;width:54px;text-align:center;align-self:flex-start}
+.acard .rel .n{display:block;font-size:17px;font-weight:700;color:var(--phos)}
+.acard .rel .b{display:block;margin-top:6px;height:3px;width:100%;background:#0e1e17;border-radius:2px;overflow:hidden}
+.acard .rel .b i{display:block;height:3px;width:100%;background:var(--phos);transform-origin:0 50%}
+.acard .m{flex:1;min-width:0}
+.acard .m h3{font-size:13px;font-weight:600;color:var(--white);line-height:1.35;margin-bottom:6px}
+.acard .m p{font-size:11px;line-height:1.6;color:var(--label);margin-top:6px}
+.acard .m .meta{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.article{max-width:74ch;padding-left:15px}
+.article p{font-size:13.5px;line-height:1.85;color:var(--white);margin-bottom:15px}
+.article p.cited{border-left:2px solid var(--amber);padding-left:13px;margin-left:-15px}
+.article h2{font-size:11px;letter-spacing:.24em;color:var(--label);margin:22px 0 11px;font-weight:700}
+.thread{display:flex;flex-direction:column;justify-content:flex-end;gap:13px;min-height:100%}
+.turn{display:flex;gap:12px;align-items:flex-start}
+.turn .who{flex:0 0 auto;width:62px;padding-top:3px;text-align:right}
+.turn .bub{flex:1;min-width:0;border:1px solid var(--rule);border-radius:3px;background:var(--panel);padding:11px 13px}
+.turn.you .bub{background:#020403;border-color:#20392e}
+.turn .bub p{font-size:13px;line-height:1.62;color:var(--white)}
+.turn.you .bub p{color:var(--phos-hi)}
+
+/* ═══ 13 WEATHER ══════════════════════════════════════════════════════════ */
+#sc13 .now{display:flex;align-items:center;gap:26px}
+#sc13 .temp{font-size:118px;font-weight:700;color:var(--white);line-height:.92}
+#sc13 .temp sup{font-size:36px;vertical-align:top;color:var(--phos);font-weight:400}
+.sunarc{position:relative;height:126px}
+.sunarc svg{position:absolute;inset:0;width:100%;height:100%}
+.sunarc .sun{position:absolute;width:13px;height:13px;border-radius:50%;background:var(--amber);
+  box-shadow:0 0 13px rgba(255,176,0,.85);margin:-6.5px 0 0 -6.5px;transition:left .8s var(--ease-mech),top .8s var(--ease-mech)}
+.daycard{border:1px solid var(--rule);border-radius:3px;background:var(--panel);padding:13px;flex:1}
+
+/* ═══ 14 TIMERS ═══════════════════════════════════════════════════════════ */
+.tinst{border:1px solid var(--rule);border-radius:3px;background:var(--panel);padding:15px;display:flex;flex-direction:column;gap:13px;flex:1;min-width:0}
+.tinst.exp{border-color:#54211c;background:rgba(255,75,62,.05)}
+.tinst .bez{position:relative;width:100%;height:174px;display:grid;place-items:center}
+.tinst .bez svg{position:absolute;inset:0;margin:auto}
+.tinst .bez .nd{position:absolute;left:50%;top:calc(50% - 84px);width:4px;height:84px;margin-left:-2px;
+  transform-origin:50% 100%;transform:rotate(0deg);transition:transform .4s linear;z-index:3}
+.tinst .bez .nd s{display:block;text-decoration:none;width:4px;height:16px;border-radius:1px;
+  background:var(--amber);box-shadow:0 0 10px rgba(255,176,0,.95)}
+.tinst .rd{position:relative;z-index:2;font-size:40px;font-weight:700;color:var(--white)}
+.tinst.exp .rd{color:var(--red)}
+.tinst .rd .sep{width:.34em;color:var(--phos);opacity:.7}
+
+/* ═══ 15/16 ALARMS ════════════════════════════════════════════════════════ */
+.arow{
+  display:flex;align-items:center;gap:16px;padding:13px;border:1px solid var(--rule);
+  border-radius:3px;background:var(--panel);width:100%;text-align:left;min-height:48px;
+  transition:border-color .16s linear,opacity .2s linear;
+}
+.arow:hover{border-color:#204d38}
+.arow.off{opacity:.46}
+.arow .at{font-size:38px;font-weight:700;color:var(--white)}
+.arow .at .sep{width:.32em;color:var(--phos);opacity:.7}
+.arow .ampm{font-size:12px;letter-spacing:.2em;color:var(--label);align-self:flex-end;padding-bottom:7px}
+.daypick{display:flex;gap:5px}
+.daypick .d{width:48px;height:48px;border-radius:3px;border:1px solid var(--rule);background:#040807;
+  color:var(--dim);font-size:11px;font-weight:700;letter-spacing:.04em;display:grid;place-items:center;
+  transition:color .16s linear,border-color .16s linear,background-color .16s linear}
+.daypick .d.on{color:var(--phos);border-color:#2a6647;background:rgba(59,255,158,.08);box-shadow:inset 0 0 12px rgba(59,255,158,.10)}
+.spin{display:flex;flex-direction:column;align-items:center;gap:7px}
+.spin .key{width:64px;min-height:48px;padding:0}
+.spin .v{font-size:56px;font-weight:700;color:var(--white)}
+.srow{display:flex;align-items:center;gap:13px;padding:5px 8px 5px 13px;border:1px solid var(--rule);border-radius:3px;
+  background:var(--panel);width:100%;text-align:left;min-height:54px;height:54px;transition:border-color .16s linear}
+.srow.sel{border-color:#2a6647;background:rgba(59,255,158,.055)}
+.srow .nm{font-size:11px;letter-spacing:.18em;font-weight:700;color:var(--label)}
+.srow.sel .nm{color:var(--phos)}
+.srow .ds{font-size:9.5px;color:var(--dim);letter-spacing:.06em;text-transform:none}
+
+/* ═══ 17 AGENDA — vertical time tape ══════════════════════════════════════ */
+.tape{position:relative;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.tape .inner{position:relative}
+.tape .hr{position:absolute;left:0;right:0;height:1px;background:var(--rule)}
+.tape .hrl{position:absolute;left:0;width:56px;font-size:9.5px;letter-spacing:.14em;color:var(--dim);text-align:right;padding-right:11px;transform:translateY(-50%)}
+.tape .now{position:absolute;left:56px;right:0;height:1px;background:var(--amber);box-shadow:0 0 8px rgba(255,176,0,.7);z-index:5}
+.tape .now b{position:absolute;left:-56px;top:-8px;width:52px;text-align:right;font-size:9px;letter-spacing:.1em;color:var(--amber);font-weight:700}
+.tape .now s{position:absolute;text-decoration:none;right:0;top:-4px;width:0;height:0;border:4px solid transparent;border-right-color:var(--amber)}
+.evt{position:absolute;left:64px;right:8px;border:1px solid var(--rule);border-left:3px solid var(--phos);
+  border-radius:2px;background:var(--panel);padding:8px 11px;text-align:left;overflow:hidden;
+  transition:border-color .16s linear,background-color .16s linear;min-height:48px}
+.evt:hover{background:var(--panel-hi);border-color:#204d38;border-left-color:var(--phos)}
+.evt.amb{border-left-color:var(--amber)} .evt.wht{border-left-color:var(--white)}
+.evt h4{font-size:12px;font-weight:600;color:var(--white);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.evt .m{margin-top:4px;font-size:9.5px;letter-spacing:.1em;color:var(--label);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.evt.past{opacity:.44}
+
+/* ═══ 18/19 EVENT ═════════════════════════════════════════════════════════ */
+.field{display:flex;flex-direction:column;gap:6px}
+.field > .lbl{padding-left:1px}
+.readback{border:1px solid #4a3505;border-radius:3px;background:rgba(255,176,0,.045);padding:17px 19px}
+.readback .sp{font-size:20px;line-height:1.62;color:var(--amber-hi);font-weight:500}
+.readback .sp em{font-style:normal;color:var(--white);text-decoration:underline;text-decoration-color:#5a4108;text-underline-offset:4px}
+.parsed{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:3px;overflow:hidden}
+.parsed .c{background:var(--panel);padding:11px 13px;min-height:60px}
+.parsed .c .v{margin-top:5px;font-size:13px;color:var(--white)}
+
+/* ═══ 20-24 COMM ══════════════════════════════════════════════════════════ */
+.cand{border:1px solid var(--rule);border-radius:3px;background:var(--panel);padding:15px;flex:1;
+  display:flex;flex-direction:column;gap:12px;text-align:left;min-width:0;transition:border-color .16s linear}
+.cand:hover{border-color:#204d38}
+.av{width:54px;height:54px;flex:0 0 auto;border-radius:3px;border:1px solid var(--rule);background:#040807;
+  display:grid;place-items:center;font-size:19px;font-weight:700;color:var(--phos)}
+.cand .nm{font-size:16px;font-weight:600;color:var(--white)}
+.mrow{display:flex;align-items:flex-start;gap:13px;padding:12px 13px;border-bottom:1px solid var(--rule);
+  width:100%;text-align:left;min-height:64px;transition:background-color .16s linear}
+.mrow:hover{background:var(--panel-hi)}
+.mrow .bulb{width:7px;height:7px;border-radius:50%;background:#0d1a14;border:1px solid #1b3328;flex:0 0 auto;margin-top:5px}
+.mrow.unread .bulb{background:var(--phos);border-color:var(--phos);box-shadow:0 0 8px rgba(59,255,158,.75)}
+.mrow .who{width:168px;flex:0 0 auto;font-size:12px;color:var(--label);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mrow.unread .who{color:var(--white);font-weight:600}
+.mrow .sb{flex:1;min-width:0}
+.mrow .sb h4{font-size:12.5px;font-weight:500;color:var(--label);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mrow.unread .sb h4{color:var(--white);font-weight:600}
+.mrow .sb p{margin-top:3px;font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mrow .tm{flex:0 0 auto;font-size:9.5px;letter-spacing:.1em;color:var(--dim);padding-top:2px}
+.body-text p{font-size:13.5px;line-height:1.8;color:var(--white);margin-bottom:14px}
+.attach{display:flex;align-items:center;gap:13px;border:1px solid #4a3505;border-radius:3px;
+  background:rgba(255,176,0,.045);padding:11px 13px}
+.attach .th{width:62px;height:46px;border-radius:2px;overflow:hidden;flex:0 0 auto;border:1px solid #5a4108}
+
+/* ═══ 25 CAMERA ═══════════════════════════════════════════════════════════ */
+#sc25 .vf{position:relative;flex:1;min-height:0;border:1px solid var(--rule);border-radius:3px;overflow:hidden;background:#000}
+#sc25 .vf canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated}
+#sc25 .recborder{position:absolute;inset:0;border:2px solid var(--red);border-radius:3px;pointer-events:none;animation:recpulse 1.5s ease-in-out infinite}
+@keyframes recpulse{0%,100%{opacity:.30}50%{opacity:.95}}
+#sc25 .brk{position:absolute;width:30px;height:30px;border:2px solid rgba(59,255,158,.6)}
+#sc25 .brk.a{left:16%;top:19%;border-right:0;border-bottom:0}
+#sc25 .brk.b{right:16%;top:19%;border-left:0;border-bottom:0}
+#sc25 .brk.c{left:16%;bottom:19%;border-right:0;border-top:0}
+#sc25 .brk.d{right:16%;bottom:19%;border-left:0;border-top:0}
+#sc25 .scanbar{position:absolute;left:0;right:0;height:76px;pointer-events:none;
+  background:linear-gradient(180deg,transparent,rgba(59,255,158,.10),transparent);animation:vscan 3.4s linear infinite}
+@keyframes vscan{0%{transform:translateY(-80px)}100%{transform:translateY(520px)}}
+#sc25 .rec{position:absolute;left:16px;top:16px;display:flex;align-items:center;gap:9px;
+  padding:7px 12px;border:1px solid var(--red);border-radius:2px;background:rgba(0,0,0,.72)}
+#sc25 .rec .dot{width:10px;height:10px;border-radius:50%;background:var(--red);box-shadow:0 0 11px rgba(255,75,62,.9);
+  animation:recdot 1.1s steps(1) infinite}
+@keyframes recdot{0%,55%{opacity:1}56%,100%{opacity:.25}}
+#sc25 .rec b{font-size:11px;letter-spacing:.26em;color:var(--red);font-weight:700}
+#sc25 .flash{position:absolute;inset:0;background:#E9FFF4;opacity:0;pointer-events:none}
+#sc25 .flash.go{animation:flash .34s ease-out}
+@keyframes flash{0%{opacity:.92}100%{opacity:0}}
+#sc25 .hud{position:absolute;right:16px;top:16px;text-align:right;font-size:9.5px;letter-spacing:.16em;color:var(--phos);line-height:2}
+
+/* ═══ 26 GALLERY ══════════════════════════════════════════════════════════ */
+.gcell{position:relative;border:1px solid var(--rule);border-radius:3px;overflow:hidden;background:#000;
+  aspect-ratio:4/3;transition:border-color .16s linear;padding:0}
+.gcell:hover{border-color:#2a6647}
+.gcell svg{display:block;width:100%;height:100%}
+.gcell .cap{position:absolute;left:0;right:0;bottom:0;padding:7px 9px;background:linear-gradient(180deg,transparent,rgba(0,0,0,.9));
+  font-size:9px;letter-spacing:.14em;color:var(--phos);text-align:left;text-transform:uppercase;font-weight:700}
+.gcell.sel{border-color:var(--phos)}
+
+/* ═══ 27/28 MIND ══════════════════════════════════════════════════════════ */
+.mem{border:1px solid var(--rule);border-radius:3px;background:var(--panel);padding:13px;display:flex;gap:14px;align-items:flex-start}
+.mem .f{flex:1;min-width:0}
+.mem .f .fact{display:block;font-size:14px;line-height:1.55;color:var(--white);text-align:left}
+.job{border:1px solid var(--rule);border-radius:3px;background:var(--panel);padding:15px}
+.job.run{border-color:#2a6647}
+.job.queue{border-color:#20392e;opacity:.82}
+.job.done{border-color:#2b4a3d}
+.pbar{height:9px;background:#0c1a14;border-radius:2px;overflow:hidden}
+.pbar i{display:block;height:100%;background:var(--phos);transform-origin:0 50%;transition:transform .4s linear;
+  box-shadow:0 0 9px rgba(59,255,158,.5)}
+.pbar.a i{background:var(--amber);box-shadow:0 0 9px rgba(255,176,0,.5)}
+
+/* ═══ 29-31 SYSTEM ════════════════════════════════════════════════════════ */
+.hcell{border:1px solid var(--rule);border-radius:3px;background:var(--panel);padding:11px 12px;
+  display:flex;flex-direction:column;gap:8px;min-height:82px}
+.hcell .top{display:flex;align-items:center;gap:8px}
+.hcell .bulb{width:8px;height:8px;border-radius:50%;background:#0d1a14;border:1px solid #1b3328;flex:0 0 auto;
+  transition:background-color .18s linear,box-shadow .18s linear,border-color .18s linear}
+.hcell .nm{font-size:9.5px;letter-spacing:.18em;font-weight:700;color:var(--dim);transition:color .18s linear}
+.hcell .st{margin-left:auto;font-size:8.5px;letter-spacing:.16em;font-weight:700;color:var(--dim)}
+.hcell .dt{font-size:10px;color:var(--dim);line-height:1.5}
+.hcell.live .bulb{background:var(--phos);border-color:var(--phos);box-shadow:0 0 8px rgba(59,255,158,.7)}
+.hcell.live .nm,.hcell.live .st{color:var(--phos)} .hcell.live .dt{color:var(--label)}
+.hcell.deg{border-color:#4a3505}
+.hcell.deg .bulb{background:var(--amber);border-color:var(--amber);box-shadow:0 0 8px rgba(255,176,0,.75)}
+.hcell.deg .nm,.hcell.deg .st{color:var(--amber)} .hcell.deg .dt{color:#a2751a}
+.hcell.dead{border-color:#54211c}
+.hcell.dead .bulb{background:var(--red);border-color:var(--red);box-shadow:0 0 8px rgba(255,75,62,.8)}
+.hcell.dead .nm,.hcell.dead .st{color:var(--red)} .hcell.dead .dt{color:#b3564d}
+.diag{display:flex;align-items:center;gap:13px;padding:11px 13px;border-bottom:1px solid var(--rule)}
+.diag:last-child{border-bottom:0}
+.diag .mk{width:20px;text-align:center;font-size:14px;font-weight:700}
+.diag .nm{width:190px;flex:0 0 auto;font-size:10px;letter-spacing:.18em;font-weight:700}
+.diag .dt{font-size:11px;color:var(--label);flex:1}
+.diag.ok .mk,.diag.ok .nm{color:var(--phos)}
+.diag.bad .mk,.diag.bad .nm{color:var(--red)}
+.diag.na .mk,.diag.na .nm{color:var(--dim)}
+#sc29 .mutemark{font-size:74px;letter-spacing:.32em}
+</style>
+<body>
+<div id="stage"><div id="deck">
+<!-- ═══ GLARESHIELD ═══════════════════════════════════════════════════════ -->
+<header id="glare" class="tex">
+  <button id="indexKey" aria-label="Open screen index"><span class="bars"><s></s><s></s><s></s></span><em>Index</em></button>
+  <div class="fade">
+    <div id="wordmark" class="stencil">Atlas</div>
+    <div class="vr" style="height:26px"></div>
+    <div class="lamps">
+      <div class="lamp on" id="lampMic"><i class="bulb"></i>Mic</div>
+      <div class="lamp on" id="lampNet"><i class="bulb"></i>Net</div>
+      <div class="lamp on" id="lampMdl"><i class="bulb"></i>Model</div>
+      <div class="lamp" id="lampMute"><i class="bulb"></i>Mute</div>
+      <div class="lamp" id="lampJob"><i class="bulb"></i>Job</div>
+    </div>
+    <div id="stateAnn"><i class="bulb"></i><b id="stateTxt">Standby</b></div>
+    <div class="vr" style="height:26px"></div>
+    <div id="glareClock">
+      <div class="t" id="glareTime">00:00</div>
+      <div class="d"><div id="glareDate">SUN 16 AUG</div><div style="color:#2F6B51">St. Louis MO</div></div>
+    </div>
+  </div>
+</header>
+
+<!-- ═══ RAIL ══════════════════════════════════════════════════════════════ -->
+<nav id="rail" class="tex" aria-label="System groups"><span id="railSweep"></span></nav>
+
+<!-- ═══ CRT ═══════════════════════════════════════════════════════════════ -->
+<main id="crt">
+  <div id="crtFrame"><s></s><s></s><s></s><s></s></div>
+  <div id="screens">
+
+<!-- ── 1 BOOT ─────────────────────────────────────────────────────────────-->
+<section class="screen" id="sc1">
+  <div class="bootwrap">
+    <div>
+      <div class="bmark stencil sc-w">Atlas</div>
+      <div class="bsub">Phosphor Deck &middot; power-on self test</div>
+      <div class="bbar" id="bootBar"></div>
+      <div class="bpct"><div class="numbox n" id="bootPct"></div><div class="lbl" style="padding-bottom:9px">Percent complete</div></div>
+      <div class="hint" style="margin-top:22px;max-width:420px" id="bootMsg">Warming the phosphor. Every subsystem reports for itself &mdash; nothing is assumed live until it answers.</div>
+      <div class="row g8" style="margin-top:20px">
+        <button class="key pri" id="bootReplay">Run self test again</button>
+        <button class="key" data-go="2">Skip to idle</button>
+      </div>
+    </div>
+    <div class="post" id="postList"></div>
+  </div>
+  <div class="bfoot"><span>Build 4.2.1 &middot; Raspberry Pi 5 &middot; 8 GB</span><span id="bootSerial">Unit ATL-0117 &middot; Danforth Hall 412</span></div>
+</section>
+
+<!-- ── 2 IDLE ─────────────────────────────────────────────────────────────-->
+<section class="screen" id="sc2">
+  <div class="corner tl">
+    <button class="key" data-go="15">
+      <span class="top"><span class="kx">Next alarm</span><i class="lamp on" style="padding:2px 5px;font-size:8px"><i class="bulb" style="width:5px;height:5px"></i>Armed</i></span>
+      <span class="kv" id="idleAlarm">7:10 AM</span><span class="kx" id="idleAlarmSub">Weekdays &middot; class</span>
+    </button>
+  </div>
+  <div class="corner tr">
+    <button class="key" data-go="13">
+      <span class="top"><span class="kx">St. Louis</span><span class="kx" style="color:#FFB000">Heat advisory</span></span>
+      <span class="kv">94&deg; &middot; feels 103&deg;</span><span class="kx">Haze &middot; storms after 8 PM</span>
+    </button>
+  </div>
+  <div class="corner bl">
+    <button class="key" data-go="17">
+      <span class="top"><span class="kx">Next up</span><span class="kx" id="idleEvtIn">In 2 h 10 m</span></span>
+      <span class="kv" id="idleEvtT">6:00 PM</span><span class="kx" id="idleEvtN">Lacrosse &middot; Francis Field</span>
+    </button>
+  </div>
+  <div class="corner br">
+    <button class="key" data-go="28">
+      <span class="top"><span class="kx">Working on it</span><i class="lamp on" style="padding:2px 5px;font-size:8px"><i class="bulb" style="width:5px;height:5px"></i>Run</i></span>
+      <span class="kv"><span id="idleJobPct">62</span>%</span><span class="kx">POS comparison &middot; 14 sources</span>
+    </button>
+  </div>
+  <div class="hero">
+    <svg viewBox="0 0 534 534" id="clockRing" aria-hidden="true"></svg>
+    <div class="secneedle" id="secNeedle"><s></s></div>
+    <div class="clockface">
+      <div class="cnum numbox glow-w" id="idleClock"></div>
+      <div class="csec numbox glow" id="idleSec"></div>
+      <div class="cdate stencil sc-l" id="idleDate">Sunday 16 August</div>
+      <div class="cwake">Say &ldquo;Atlas&rdquo;</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 3 SLEEP ────────────────────────────────────────────────────────────-->
+<section class="screen" id="sc3">
+  <button class="tapall" data-go="4" aria-label="Wake Atlas"></button>
+  <div class="dimclock" id="dimClock">
+    <div class="t numbox" id="dimTime"></div>
+    <div class="s">Screen asleep &middot; tap or say Atlas</div>
+    <div class="s" style="margin-top:7px;color:#0e3d2c">Position shifts every 20 s so nothing burns in</div>
+  </div>
+</section>
+
+<!-- ── 4 WAKE ─────────────────────────────────────────────────────────────-->
+<section class="screen" id="sc4">
+  <div class="wcenter">
+    <div class="ring"></div><div class="ring"></div><div class="ring"></div>
+    <div class="wmark"><div class="big stencil">Atlas</div><div class="sub">Heard you &mdash; go ahead</div></div>
+  </div>
+  <div class="conf">
+    <span class="lbl">Wake word</span>
+    <div class="tick-row" id="wakeTicks"></div>
+    <span class="readout glow">0.94</span>
+    <span class="lbl">&ldquo;Atlas&rdquo; &middot; 140 ms</span>
+  </div>
+</section>
+
+<!-- ── 5 LISTENING ────────────────────────────────────────────────────────-->
+<section class="screen" id="sc5">
+  <div class="shead">
+    <span class="no">05</span><h1 class="stencil sc-w">Listening</h1>
+    <span class="sub" id="listenEnd">Endpoint in 2.0 s</span>
+  </div>
+  <div class="sbody col g14">
+    <div class="row g14 center" style="flex:0 0 auto">
+      <div class="vu" id="vuMeter"></div>
+      <div class="scope talkbar grow"><canvas data-scope="listen"></canvas><span class="grat"></span></div>
+      <div class="col g8" style="width:132px;flex:0 0 auto">
+        <div class="panel noscrew pad" style="text-align:center">
+          <div class="lbl">Input</div><div class="readout glow" style="margin-top:6px">&minus;18 dB</div>
+        </div>
+        <div class="panel noscrew pad" style="text-align:center">
+          <div class="lbl">Model</div><div class="readout" style="margin-top:6px;font-size:11px">Whisper<br>small.en</div>
+        </div>
+      </div>
+    </div>
+    <div class="panel pad-lg grow" style="display:flex;flex-direction:column">
+      <div class="row between center" style="flex:0 0 auto"><span class="lbl">Live transcript</span><span class="lbl lbl-d">A word settles when confidence passes 0.8</span></div>
+      <div class="grow" style="display:flex;align-items:center"><div class="transcript" id="listenText"></div></div>
+      <hr class="rule" style="flex:0 0 auto">
+      <div class="row g18" style="flex:0 0 auto;padding-top:13px">
+        <div style="width:150px;flex:0 0 auto"><span class="lbl">Guesses it threw away</span>
+          <p class="hint" style="margin-top:6px;font-size:10.5px">Atlas shows what it nearly heard, so a bad answer is traceable to a bad hearing.</p></div>
+        <div class="col g6 grow" id="interimList"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 6 THINKING ─────────────────────────────────────────────────────────-->
+<section class="screen" id="sc6">
+  <div class="shead">
+    <span class="no">06</span><h1 class="stencil sc-w">Working</h1>
+    <span class="sub">&ldquo;When is my chem lab and is the pre-lab done&rdquo;</span>
+  </div>
+  <div class="sbody row g18">
+    <div class="col g14" style="width:250px;flex:0 0 auto;align-items:center;justify-content:center">
+      <div class="radar">
+        <svg viewBox="0 0 236 236" id="radarSvg" aria-hidden="true"></svg>
+        <div class="sweep"><i></i></div>
+        <div class="rc"><div>
+          <div class="numbox glow" id="thinkMs" style="font-size:34px;font-weight:700"></div>
+          <div class="lbl" style="margin-top:6px">Seconds elapsed</div>
+        </div></div>
+      </div>
+      <div class="hint" style="text-align:center;max-width:220px">Atlas shows its work. If a step fails you will see it here, not in the answer.</div>
+    </div>
+    <div class="grow col g14">
+      <div class="stages" id="thinkStages"></div>
+      <div class="panel grow" style="display:flex;flex-direction:column;min-height:0">
+        <div class="row between center pad" style="padding-bottom:9px;flex:0 0 auto">
+          <span class="lbl">Tool calls</span><span class="lbl lbl-d">Every one of these can fail out loud</span></div>
+        <hr class="rule">
+        <div class="scroll col grow" style="padding:0" id="thinkTools"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 7 SPEAKING ─────────────────────────────────────────────────────────-->
+<section class="screen" id="sc7">
+  <div class="shead">
+    <span class="no">07</span><h1 class="stencil sc-w">Speaking</h1>
+    <span class="sub">Piper &middot; voice Amy &middot; 1.0&times;</span>
+  </div>
+  <div class="sbody row g18">
+    <div class="grow col g14">
+      <div class="scope" style="height:74px;flex:0 0 auto"><canvas data-scope="speak"></canvas><span class="grat"></span></div>
+      <div class="panel pad-lg grow" style="display:flex;flex-direction:column">
+        <div class="row between center" style="flex:0 0 auto"><span class="lbl">Caption</span><span class="lbl lbl-d">Streaming as it speaks</span></div>
+        <div class="grow" style="display:flex;align-items:center"><div class="transcript" id="speakText" style="font-size:26px"></div></div>
+        <hr class="rule" style="flex:0 0 auto">
+        <div class="row g14 center" style="flex:0 0 auto;padding-top:13px">
+          <span class="lbl" style="flex:0 0 auto">Spoken</span>
+          <div class="pbar grow"><i id="speakBar" style="transform:scaleX(0)"></i></div>
+          <span class="mini" id="speakWords" style="flex:0 0 auto">0 / 0 words</span>
+        </div>
+        <div class="row g8" style="flex:0 0 auto;padding-top:11px">
+          <button class="key" id="spkAgain" style="min-width:150px">Say that again</button>
+          <button class="key" id="spkSlower">Slower</button>
+          <button class="key dgr" id="spkStop">Stop talking</button>
+        </div>
+      </div>
+    </div>
+    <div class="col g14" style="width:326px;flex:0 0 auto">
+      <div id="speakProv"></div>
+      <div class="panel pad grow" style="display:flex;flex-direction:column;gap:10px">
+        <span class="lbl">Where this came from</span>
+        <div class="col g8" id="speakSrc"></div>
+      </div>
+      <button class="key arm" id="cycleBadge">Show the next badge</button>
+    </div>
+  </div>
+</section>
+<!-- ── 8 QUICK ANSWER ─────────────────────────────────────────────────────-->
+<section class="screen" id="sc8">
+  <div class="shead">
+    <span class="no">08</span><h1 class="stencil sc-w">Quick answer</h1>
+    <span class="sub">Asked 11 s ago</span>
+  </div>
+  <div class="sbody col g14">
+    <div class="row g14 center" style="flex:0 0 auto">
+      <div class="grow">
+        <div class="lbl">You asked</div>
+        <div class="readout" style="margin-top:7px;font-size:16px">&ldquo;How cold does the base need to be before I spin it?&rdquo;</div>
+      </div>
+      <div class="prov" data-p="sourced"><span class="pl"><i class="pb"></i><span class="pt"><b>Sourced</b><i>Two references, both read just now</i></span></span><span class="pn">2</span></div>
+    </div>
+    <div class="qcard" style="flex:0 0 auto;border-color:#2a6647">
+      <div class="lbl">Atlas answered</div>
+      <p class="readout" style="margin-top:9px;font-size:19px;line-height:1.55">Chill the base to four degrees Celsius or colder, then age it at least four hours. Overnight is better &mdash; you get less ice and a smoother overrun.</p>
+    </div>
+    <div class="grow scroll" style="padding-right:5px">
+      <div class="lbl" style="margin-bottom:9px">The exact lines it read</div>
+      <div class="excerpt">
+        <q>Ageing the mix for 4 h at 4 &deg;C or lower improves whipping quality and imparts a smoother body and texture.</q>
+        <div class="src"><span class="chip on">Book</span><span class="mini">Ice Cream, 7th ed. &mdash; Goff &amp; Hartel, p. 212</span><span class="mini lbl-d">Retrieved 11 s ago</span></div>
+      </div>
+      <div class="excerpt">
+        <q>Mix shall be cooled to 7 &deg;C (45 &deg;F) or below within two hours of pasteurization and held at that temperature until frozen.</q>
+        <div class="src"><span class="chip on">Regulation</span><span class="mini">Missouri DHSS &mdash; Frozen Dessert Plants, 19 CSR 20-1.030</span><span class="mini lbl-d">Retrieved 11 s ago</span></div>
+      </div>
+      <div class="hint" style="margin-top:5px">The regulation sets the floor. The book sets the target. Atlas gave you the book number and did not average them.</div>
+      <hr class="rule" style="margin:15px 0">
+      <div class="lbl" style="margin-bottom:9px">Read, then thrown out</div>
+      <div class="col g6">
+        <div class="row g14 center"><span class="chip" style="width:112px;justify-content:center;flex:0 0 auto">No source</span>
+          <span class="hint" style="flex:1">Two blog posts that gave a number with nothing behind it.</span></div>
+        <div class="row g14 center"><span class="chip a" style="width:112px;justify-content:center;flex:0 0 auto">Contradicts</span>
+          <span class="hint" style="flex:1">A forum answer saying two hours is enough. The book says four, so Atlas kept the book and told you which one it used.</span></div>
+      </div>
+    </div>
+    <div class="row g8" style="flex:0 0 auto">
+      <button class="key pri" data-go="9" style="min-width:190px">Ask this deeper</button>
+      <button class="key" data-go="12">Ask a follow-up</button>
+      <button class="key" data-go="27">What else do you know?</button>
+    </div>
+  </div>
+</section>
+
+<!-- ── 9 DEEP RESEARCH ────────────────────────────────────────────────────-->
+<section class="screen" id="sc9">
+  <div class="shead">
+    <span class="no">09</span><h1 class="stencil sc-w">Researching</h1>
+    <span class="sub">Started 4 min ago &middot; you can walk away</span>
+  </div>
+  <div class="sbody col g14">
+    <div class="panel pad-lg" style="flex:0 0 auto">
+      <div class="lbl">The job</div>
+      <div class="readout" style="margin-top:8px;font-size:18px">Compare point-of-sale systems for Campus Creamery &mdash; under $80 a month, has to take tips and tax, works with a Bluetooth card reader at the market cart.</div>
+    </div>
+    <div class="row g14" style="flex:0 0 auto">
+      <div class="panel pad grow"><div class="lbl">Progress</div>
+        <div class="row center g14" style="margin-top:9px"><div class="numbox big glow" id="rsPct"></div><span class="med quiet">%</span>
+        <div class="pbar grow" style="margin-left:6px"><i id="rsBar" style="transform:scaleX(.62)"></i></div></div></div>
+      <div class="panel pad" style="width:150px"><div class="lbl">Sources read</div><div class="numbox big glow-w" id="rsSrc" style="margin-top:9px"></div></div>
+      <div class="panel pad" style="width:150px"><div class="lbl">Elapsed</div><div class="numbox big glow-w" id="rsEl" style="margin-top:9px"></div></div>
+      <div class="panel pad" style="width:170px"><div class="lbl">Est. remaining</div><div class="readout med" style="margin-top:9px;color:var(--amber)">2 min</div></div>
+    </div>
+    <div class="panel grow" style="display:flex;flex-direction:column;min-height:0">
+      <div class="row between center pad" style="padding-bottom:9px"><span class="lbl">What it is doing</span><span class="lbl lbl-d">Newest first</span></div>
+      <hr class="rule">
+      <div class="scroll grow" style="padding:11px 13px" id="rsLog"></div>
+    </div>
+    <div class="row g8" style="flex:0 0 auto">
+      <button class="key pri" id="rsFinish" style="min-width:200px">Skip ahead to results</button>
+      <button class="key" data-go="28">Run it in the background</button>
+      <button class="key dgr" id="rsStop">Stop the job</button>
+    </div>
+  </div>
+</section>
+
+<!-- ── 10 RESULTS ─────────────────────────────────────────────────────────-->
+<section class="screen" id="sc10">
+  <div class="shead">
+    <span class="no">10</span><h1 class="stencil sc-w" id="resTitle">Point-of-sale comparison</h1>
+    <span class="sub">Finished in 6 min 12 s</span>
+  </div>
+  <div class="sbody col g13" style="gap:13px">
+    <div class="row g14 center" style="flex:0 0 auto">
+      <div class="qcard grow" style="border-color:#2a6647">
+        <div class="lbl">The short version</div>
+        <p class="readout" style="margin-top:8px;font-size:15px;line-height:1.6" id="resVerdict">Square&rsquo;s free plan is the only one that lands under $80 a month for a single cart. Toast&rsquo;s hardware is $0 up front because a three-year processing commitment pays for it &mdash; that is the trade you would be making.</p>
+      </div>
+      <div class="prov" data-p="sourced"><span class="pl"><i class="pb"></i><span class="pt"><b>Sourced</b><i>Vendor pages, press, and two forums</i></span></span><span class="pn">14</span></div>
+    </div>
+    <div class="tabs" id="resTabs"></div>
+    <div class="grow scroll col g8" id="resList" style="padding-right:5px"></div>
+    <div class="row g8" style="flex:0 0 auto">
+      <button class="key pri" data-go="12" style="min-width:180px">Ask a follow-up</button>
+      <button class="key" id="resSave">Save to a folder</button>
+      <button class="key" id="resDoc">Make a document</button>
+      <button class="key" id="resMail">Email it to me</button>
+    </div>
+  </div>
+</section>
+
+<!-- ── 11 ARTICLE ─────────────────────────────────────────────────────────-->
+<section class="screen" id="sc11">
+  <div class="shead">
+    <span class="no">11</span><h1 class="stencil sc-w">Source</h1>
+    <span class="sub" id="artSrcLine">square.com &middot; retrieved today 15:52</span>
+  </div>
+  <div class="sbody row g18">
+    <div class="grow scroll" style="padding-right:8px">
+      <h2 class="readout" style="font-size:24px;line-height:1.35;font-weight:600;margin-bottom:11px" id="artTitle">Square for Restaurants pricing, 2026</h2>
+      <div class="row g8 wrap" style="margin-bottom:18px" id="artMeta"></div>
+      <div class="article" id="artBody"></div>
+    </div>
+    <div class="col g14" style="width:274px;flex:0 0 auto">
+      <div id="artProv"></div>
+      <div class="panel pad col g10">
+        <span class="lbl">Used in the answer</span>
+        <div class="hint">Two lines from this page are quoted in the short version. They are marked amber in the text.</div>
+        <hr class="rule">
+        <span class="lbl">Read time</span><span class="readout">2 min &middot; 640 words</span>
+        <span class="lbl">First seen</span><span class="readout">Today 15:52</span>
+      </div>
+      <button class="key pri" data-go="12">Ask about this</button>
+      <button class="key" data-go="10">Back to results</button>
+      <button class="key" id="artSave">Save to a folder</button>
+    </div>
+  </div>
+</section>
+
+<!-- ── 12 FOLLOW-UP THREAD ────────────────────────────────────────────────-->
+<section class="screen" id="sc12">
+  <div class="shead">
+    <span class="no">12</span><h1 class="stencil sc-w">Follow-up</h1>
+    <span class="sub">Thread on the point-of-sale research</span>
+  </div>
+  <div class="sbody col g13" style="gap:13px">
+    <div class="grow scroll" style="padding-right:6px"><div class="thread" id="thread"></div></div>
+    <div class="row g6 wrap" style="flex:0 0 auto" id="suggests"></div>
+    <div class="row g8 center" style="flex:0 0 auto">
+      <input class="inp grow" id="threadInput" placeholder="Type a question, or hold the talk key" autocomplete="off">
+      <button class="key pri" id="threadSend" style="min-width:104px">Send</button>
+    </div>
+    <div class="row g8" style="flex:0 0 auto">
+      <button class="key" id="fuSave">Save to a folder</button>
+      <button class="key" id="fuDoc">Make a document</button>
+      <button class="key" id="fuMail">Email it to me</button>
+      <span class="hint" style="margin-left:auto;align-self:center">Every answer keeps the badge it earned.</span>
+    </div>
+  </div>
+</section>
+
+<!-- ── 13 WEATHER ─────────────────────────────────────────────────────────-->
+<section class="screen" id="sc13">
+  <div class="shead">
+    <span class="no">13</span><h1 class="stencil sc-w">St. Louis</h1>
+    <span class="sub">National Weather Service LSX &middot; updated 8 min ago</span>
+  </div>
+  <div class="sbody col g14">
+    <div class="row g18 center" style="flex:0 0 auto">
+      <div class="now">
+        <div class="temp">94<sup>&deg;F</sup></div>
+        <div class="col g6" style="padding-bottom:7px">
+          <div class="med" style="color:var(--amber)">Feels 103&deg;</div>
+          <div class="lbl" style="letter-spacing:.2em">Haze &middot; wind SSW 8 mph</div>
+          <div class="chip a" style="align-self:flex-start">Heat advisory until 8 PM</div>
+        </div>
+      </div>
+      <div class="grow row g8">
+        <div class="panel pad grow" style="text-align:center"><div class="lbl">Humidity</div><div class="med glow-w" style="margin-top:8px">61%</div></div>
+        <div class="panel pad grow" style="text-align:center"><div class="lbl">Dew point</div><div class="med glow-w" style="margin-top:8px">76&deg;</div></div>
+        <div class="panel pad grow" style="text-align:center"><div class="lbl">UV index</div><div class="med glow-w" style="margin-top:8px">9</div></div>
+        <div class="panel pad grow" style="text-align:center"><div class="lbl">Rain by 10 PM</div><div class="med glow-w" style="margin-top:8px">1.1&Prime;</div></div>
+      </div>
+    </div>
+    <div class="panel pad-lg" style="flex:0 0 auto">
+      <div class="row between center"><span class="lbl">Sun today</span><span class="lbl lbl-d">Marker shows where the sun is now</span></div>
+      <div class="sunarc" id="sunArc"><svg viewBox="0 0 900 126" preserveAspectRatio="none" id="sunSvg"></svg><i class="sun" id="sunDot"></i></div>
+      <div class="row between">
+        <div><div class="lbl">Sunrise</div><div class="readout" style="margin-top:5px;font-size:17px">6:24 AM</div></div>
+        <div style="text-align:center"><div class="lbl">Daylight</div><div class="readout" style="margin-top:5px;font-size:17px">13 h 27 m</div></div>
+        <div style="text-align:right"><div class="lbl">Sunset</div><div class="readout" style="margin-top:5px;font-size:17px">7:51 PM</div></div>
+      </div>
+    </div>
+    <div class="row g14 grow">
+      <div class="daycard">
+        <div class="row between center"><span class="lbl">Tomorrow &middot; Mon 17 Aug</span><span class="chip a">Storms</span></div>
+        <div class="row center g14" style="margin-top:13px"><div class="big glow-w">88&deg;</div><div class="col"><span class="lbl">Low</span><span class="readout" style="font-size:19px">71&deg;</span></div></div>
+        <p class="hint" style="margin-top:11px">Thunderstorms before noon, then muggy and grey. Load the cart before 9 AM if you can.</p>
+        <hr class="rule" style="margin-top:13px">
+        <div class="row between" style="margin-top:11px" data-hours="mon"></div>
+      </div>
+      <div class="daycard">
+        <div class="row between center"><span class="lbl">Tuesday &middot; 18 Aug</span><span class="chip on">Clearing</span></div>
+        <div class="row center g14" style="margin-top:13px"><div class="big glow-w">84&deg;</div><div class="col"><span class="lbl">Low</span><span class="readout" style="font-size:19px">66&deg;</span></div></div>
+        <p class="hint" style="margin-top:11px">The front clears overnight. First comfortable evening in nine days.</p>
+        <hr class="rule" style="margin-top:13px">
+        <div class="row between" style="margin-top:11px" data-hours="tue"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 14 TIMERS ──────────────────────────────────────────────────────────-->
+<section class="screen" id="sc14">
+  <div class="shead">
+    <span class="no">14</span><h1 class="stencil sc-w">Timers</h1>
+    <span class="sub"><span id="tCount">3</span> running &middot; they keep going if the screen sleeps</span>
+  </div>
+  <div class="sbody col g14">
+    <div class="row g14" style="flex:0 0 auto" id="timerRow"></div>
+    <div class="panel pad-lg grow" style="display:flex;flex-direction:column;gap:12px">
+      <span class="lbl">Start another</span>
+      <div class="row g8 wrap" id="timerPresets"></div>
+      <hr class="rule">
+      <div class="row g18 grow" style="min-height:0">
+        <div class="col g8" style="width:334px;flex:0 0 auto">
+          <span class="lbl">Ran out earlier</span>
+          <div class="row between center"><span class="readout" style="font-size:12px">Spin batch 2</span><span class="mini lbl-d">41 min ago</span></div>
+          <div class="row between center"><span class="readout" style="font-size:12px">Cone iron</span><span class="mini lbl-d">2 h ago</span></div>
+          <div class="row between center"><span class="readout" style="font-size:12px">Bio flashcards</span><span class="mini lbl-d">Yesterday</span></div>
+        </div>
+        <div class="vr"></div>
+        <div class="hint grow">Say &ldquo;Atlas, five minutes for the cone iron&rdquo; and it lands here labelled. A timer that runs out sounds even when the screen is asleep, and the annunciator stays lit until you clear it. Adding a minute to a finished timer starts it again.</div>
+      </div>
+      <div class="row g8" style="flex:0 0 auto">
+        <button class="key" id="tExpDemo">Make one run out now</button>
+        <button class="key" id="tClearAll">Clear finished timers</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 15 ALARMS ──────────────────────────────────────────────────────────-->
+<section class="screen" id="sc15">
+  <div class="shead">
+    <span class="no">15</span><h1 class="stencil sc-w">Alarms</h1>
+    <span class="sub" id="alarmSub">Next: 7:10 AM, in 9 h 12 m</span>
+  </div>
+  <div class="sbody col g14">
+    <div class="col g8 grow scroll" id="alarmList" style="padding-right:5px"></div>
+    <div class="row g8" style="flex:0 0 auto">
+      <button class="key pri" id="alarmAdd" style="min-width:170px">Add an alarm</button>
+      <span class="hint" style="align-self:center">Flip a switch to arm or disarm. Tap the row to change the time, days, or sound.</span>
+    </div>
+  </div>
+</section>
+
+<!-- ── 16 ALARM EDITOR ────────────────────────────────────────────────────-->
+<section class="screen" id="sc16">
+  <div class="shead">
+    <span class="no">16</span><h1 class="stencil sc-w">Edit alarm</h1>
+    <span class="sub" id="aeLabel">Class &middot; weekdays</span>
+  </div>
+  <div class="sbody row g18">
+    <div class="col g14" style="width:342px;flex:0 0 auto">
+      <div class="panel pad-lg">
+        <div class="lbl" style="text-align:center">Time</div>
+        <div class="row center" style="justify-content:center;gap:11px;margin-top:11px">
+          <div class="spin"><button class="key" data-ae="h+">&#9650;</button><div class="v numbox" id="aeH"></div><button class="key" data-ae="h-">&#9660;</button></div>
+          <div class="v" style="font-size:56px;font-weight:700;color:var(--phos);opacity:.65;padding-bottom:6px">:</div>
+          <div class="spin"><button class="key" data-ae="m+">&#9650;</button><div class="v numbox" id="aeM"></div><button class="key" data-ae="m-">&#9660;</button></div>
+          <div class="spin" style="justify-content:center"><button class="key" id="aeAP" style="width:64px;min-height:48px">AM</button></div>
+        </div>
+      </div>
+      <div class="panel pad-lg">
+        <div class="lbl">Repeat</div>
+        <div class="daypick" style="margin-top:11px" id="aeDays"></div>
+        <div class="row g6 wrap" style="margin-top:11px" id="aeRecur"></div>
+      </div>
+      <div class="panel pad-lg grow col g10">
+        <div class="lbl">Label</div>
+        <input class="inp" id="aeName" value="Class" autocomplete="off">
+      </div>
+    </div>
+    <div class="grow col g14">
+      <div class="panel pad-lg" style="flex:1 1 auto;min-height:0;display:flex;flex-direction:column">
+        <div class="row between center"><span class="lbl">Sound</span><span class="lbl lbl-d">Tap to hear it</span></div>
+        <div class="col scroll grow" style="margin-top:11px;min-height:0;gap:5px" id="aeSounds"></div>
+      </div>
+      <div class="panel pad row g18 center" style="flex:0 0 auto">
+        <div class="knob" id="volKnob" tabindex="0" role="slider" aria-label="Alarm volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="68">
+          <svg class="ring" viewBox="0 0 104 104" id="knobRing"></svg>
+          <div class="dial" id="volDial"><i class="knurl"></i><i class="mark"></i></div>
+        </div>
+        <div class="col g6 grow">
+          <span class="lbl">Volume</span>
+          <div class="row center g8"><div class="numbox big glow-w" id="volNum"></div><span class="med quiet">%</span></div>
+          <div class="hint">Turn the knob or use the arrow keys. Previews play at this level, so what you hear is what will wake you.</div>
+          <div class="row g8"><button class="key sm" id="volDown" style="min-width:64px">&minus;</button><button class="key sm" id="volUp" style="min-width:64px">+</button><button class="key sm" id="volTest">Test at this volume</button></div>
+        </div>
+      </div>
+      <div class="row g8" style="flex:0 0 auto;margin-top:auto">
+        <button class="key pri" id="aeSave" style="min-width:170px">Save changes</button>
+        <button class="key" data-go="15">Cancel</button>
+        <button class="key dgr" id="aeDelete" style="margin-left:auto">Delete this alarm</button>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- ── 17 AGENDA ──────────────────────────────────────────────────────────-->
+<section class="screen" id="sc17">
+  <div class="shead">
+    <span class="no">17</span><h1 class="stencil sc-w">Today</h1>
+    <span class="sub" id="agSub">Sunday 16 August &middot; 6 things</span>
+  </div>
+  <div class="sbody row g18">
+    <div class="grow tape" id="dayTape"><div class="inner" id="dayTapeInner"></div></div>
+    <div class="col g14" style="width:288px;flex:0 0 auto">
+      <div class="panel pad-lg col g8">
+        <span class="lbl">Right now</span>
+        <div class="readout" style="font-size:17px" id="agNow">Nothing scheduled</div>
+        <hr class="rule">
+        <span class="lbl">Next</span>
+        <div class="readout" style="font-size:17px" id="agNext">Lacrosse &mdash; captains&rsquo; practice</div>
+        <span class="mini" id="agNextT">6:00 PM &middot; Francis Field</span>
+      </div>
+      <div class="panel pad-lg col g8 grow">
+        <span class="lbl">Later this week</span>
+        <div class="row between"><span class="mini">Thu 20 &middot; 1:00 PM</span><span class="readout" style="font-size:12px">Chem 261 lab</span></div>
+        <div class="row between"><span class="mini">Fri 21 &middot; 4:00 PM</span><span class="readout" style="font-size:12px">Sig Ep pickup</span></div>
+        <div class="row between"><span class="mini">Sat 22 &middot; 7:00 AM</span><span class="readout" style="font-size:12px">Delmar market</span></div>
+        <hr class="rule">
+        <div class="prov sm" data-p="recalled" style="align-self:flex-start"><span class="pl"><i class="pb"></i><span class="pt"><b>Recalled</b><i>Synced from Google Calendar</i></span></span><span class="pn">2d</span></div>
+      </div>
+      <button class="key pri" data-go="18">Add an event</button>
+    </div>
+  </div>
+</section>
+
+<!-- ── 18 EVENT EDITOR ────────────────────────────────────────────────────-->
+<section class="screen" id="sc18">
+  <div class="shead">
+    <span class="no">18</span><h1 class="stencil sc-w">Edit event</h1>
+    <span class="sub">Creamery calendar</span>
+  </div>
+  <div class="sbody col g13" style="gap:13px">
+    <div class="row g14" style="flex:0 0 auto">
+      <div class="field grow"><span class="lbl">Title</span><input class="inp" id="evTitle" value="Creamery &mdash; Sig Ep pickup" autocomplete="off"></div>
+      <div class="field" style="width:268px"><span class="lbl">Calendar</span>
+        <div class="row g6 wrap" id="evCal"></div></div>
+    </div>
+    <div class="row g14" style="flex:0 0 auto">
+      <div class="panel pad col g8" style="width:250px">
+        <span class="lbl">Date</span>
+        <div class="row center g8"><button class="key sm" data-ev="d-" style="min-width:52px">&#9664;</button>
+        <span class="readout grow" style="text-align:center;font-size:15px" id="evDate">Fri 21 Aug</span>
+        <button class="key sm" data-ev="d+" style="min-width:52px">&#9654;</button></div>
+      </div>
+      <div class="panel pad col g8" style="width:250px">
+        <span class="lbl">Starts</span>
+        <div class="row center g8"><button class="key sm" data-ev="t-" style="min-width:52px">&#9660;</button>
+        <span class="row center grow" style="justify-content:center;gap:7px">
+          <span class="readout numbox" style="font-size:26px;font-weight:700" id="evStart"></span>
+          <span class="lbl" style="font-size:11px;color:var(--phos)" id="evStartAP">PM</span></span>
+        <button class="key sm" data-ev="t+" style="min-width:52px">&#9650;</button></div>
+      </div>
+      <div class="panel pad col g8" style="width:250px">
+        <span class="lbl">Runs for</span>
+        <div class="row center g8"><button class="key sm" data-ev="u-" style="min-width:52px">&#9660;</button>
+        <span class="readout grow" style="text-align:center;font-size:15px" id="evDur">1 h 30 m</span>
+        <button class="key sm" data-ev="u+" style="min-width:52px">&#9650;</button></div>
+      </div>
+      <div class="panel pad col g8 grow">
+        <span class="lbl">Ends</span>
+        <div class="readout" style="font-size:26px;font-weight:700;text-align:center" id="evEnd">5:30 PM</div>
+      </div>
+    </div>
+    <div class="row g14" style="flex:0 0 auto">
+      <div class="field grow"><span class="lbl">Where</span><input class="inp" id="evWhere" value="Danforth loading dock" autocomplete="off"></div>
+      <div class="field grow"><span class="lbl">Who is coming</span>
+        <div class="row g6 wrap" style="min-height:48px;align-items:center" id="evPeople"></div></div>
+    </div>
+    <div class="row g14 grow" style="min-height:0">
+      <div class="panel pad col g8 grow">
+        <span class="lbl">Repeat</span><div class="row g6 wrap" id="evRepeat"></div>
+        <span class="lbl" style="margin-top:6px">Remind me</span><div class="row g6 wrap" id="evAlert"></div>
+      </div>
+      <div class="panel pad col g8" style="width:300px">
+        <span class="lbl">Atlas will read this back</span>
+        <div class="hint">Anything that leaves the device gets said out loud first, then needs a switch flipped. Nothing is written on one tap.</div>
+        <hr class="rule">
+        <span class="lbl">Note to yourself</span>
+        <input class="inp" id="evNote" value="Bring the dolly" autocomplete="off">
+      </div>
+    </div>
+    <div class="row g8" style="flex:0 0 auto">
+      <button class="key pri" data-go="19" style="min-width:190px">Save changes</button>
+      <button class="key" data-go="17">Cancel</button>
+    </div>
+  </div>
+</section>
+
+<!-- ── 19 TWO-PHASE CONFIRM ───────────────────────────────────────────────-->
+<section class="screen" id="sc19">
+  <div class="shead">
+    <span class="no">19</span><h1 class="stencil sc-a">Confirm</h1>
+    <span class="sub">Atlas is waiting on you</span>
+  </div>
+  <div class="sbody col g14" id="cfPending">
+    <div class="readback" style="flex:0 0 auto">
+      <div class="row between center"><span class="lbl" style="color:var(--amber)">Spoken back to you</span><span class="lbl lbl-d">Numbers appear the way they are said</span></div>
+      <p class="sp" style="margin-top:12px">I&rsquo;ll add <em>Creamery &mdash; Sig Ep pickup</em> to your creamery calendar. <em>Friday, August twenty-first</em>, <em>four PM to five thirty PM</em>, at the <em>Danforth loading dock</em>, with <em>Carlos Ferreira</em>.</p>
+    </div>
+    <div class="parsed" style="flex:0 0 auto">
+      <div class="c"><span class="lbl">What</span><div class="v">Creamery &mdash; Sig Ep pickup</div></div>
+      <div class="c"><span class="lbl">When</span><div class="v">Fri 21 Aug, 4:00&ndash;5:30 PM</div></div>
+      <div class="c"><span class="lbl">Where</span><div class="v">Danforth loading dock</div></div>
+      <div class="c"><span class="lbl">Who</span><div class="v">Carlos Ferreira</div></div>
+      <div class="c"><span class="lbl">Repeat</span><div class="v">Once</div></div>
+      <div class="c"><span class="lbl">Calendar</span><div class="v">Creamery</div></div>
+    </div>
+    <div class="row g18 grow center" style="justify-content:center;padding-right:104px">
+      <div class="col g8" style="max-width:290px">
+        <span class="lbl">Two phases, on purpose</span>
+        <p class="hint">Lift the guard, then throw the switch. One tap can&rsquo;t write to your calendar &mdash; you have to mean it.</p>
+      </div>
+      <div class="guard" data-phase="closed" id="guardCal">
+        <div class="well">
+          <span class="lbl">Guard is up &middot; switch is live</span>
+          <button class="gsw" data-guard-throw><i class="bat"></i><span class="txt">Add event</span></button>
+        </div>
+        <button class="cover" data-guard-lift><i class="hinge"></i><b>Lift guard</b><i>Confirm &mdash; add to calendar</i></button>
+        <button class="key cancel" data-go="18">Cancel</button>
+      </div>
+    </div>
+  </div>
+  <div class="sbody col g14" id="cfDone" style="display:none;align-items:center;justify-content:center">
+    <div class="lamp on" style="padding:11px 20px;font-size:12px;letter-spacing:.3em"><i class="bulb" style="width:10px;height:10px"></i>Added to your calendar</div>
+    <div class="panel pad-lg" style="width:520px;text-align:center">
+      <div class="readout" style="font-size:21px">Creamery &mdash; Sig Ep pickup</div>
+      <div class="mini" style="margin-top:9px">Friday 21 August &middot; 4:00&ndash;5:30 PM &middot; Danforth loading dock</div>
+      <div class="mini" style="margin-top:5px">Carlos Ferreira was invited. He has not answered yet.</div>
+    </div>
+    <div class="row g8"><button class="key pri" data-go="17">See it on your day</button><button class="key" id="cfReset">Run the confirm again</button></div>
+  </div>
+</section>
+
+<!-- ── 20 CONTACT DISAMBIGUATION ──────────────────────────────────────────-->
+<section class="screen" id="sc20">
+  <div class="shead">
+    <span class="no">20</span><h1 class="stencil sc-w">Which Carlos?</h1>
+    <span class="sub">Three people match &ldquo;text Carlos&rdquo;</span>
+  </div>
+  <div class="sbody col g14">
+    <div class="row g14 center" style="flex:0 0 auto">
+      <p class="hint grow" style="font-size:12px">Atlas did not guess. Pick one and it will remember the choice for this kind of message.</p>
+      <div class="prov" data-p="recalled"><span class="pl"><i class="pb"></i><span class="pt"><b>Recalled</b><i>From your contacts and message history</i></span></span><span class="pn">2d</span></div>
+    </div>
+    <div class="row g14 grow" id="candRow"></div>
+    <div class="row g8" style="flex:0 0 auto">
+      <button class="key" data-go="22">None of these &mdash; open the inbox</button>
+      <span class="hint" style="align-self:center">Confidence is how well the name, the recency, and the subject line up.</span>
+    </div>
+  </div>
+</section>
+
+<!-- ── 21 TEXT COMPOSE ────────────────────────────────────────────────────-->
+<section class="screen" id="sc21">
+  <div class="shead">
+    <span class="no">21</span><h1 class="stencil sc-w">Text message</h1>
+    <span class="sub" id="txTo">To Carlos Ferreira &middot; +1 314 555 0148</span>
+  </div>
+  <div class="sbody col g14" id="txPending">
+    <div class="field" style="flex:0 0 auto"><span class="lbl">Message</span>
+      <textarea class="inp" id="txBody" rows="3" style="resize:none;line-height:1.6">Can you cover the Sig Ep pickup Friday at four? I'm in lab until three thirty.</textarea></div>
+    <div class="readback" style="flex:0 0 auto">
+      <div class="lbl" style="color:var(--amber)">Spoken back to you</div>
+      <p class="sp" style="margin-top:10px;font-size:18px">I&rsquo;ll text <em>Carlos Ferreira</em>: &ldquo;Can you cover the Sig Ep pickup <em>Friday at four</em>? I&rsquo;m in lab until <em>three thirty</em>.&rdquo;</p>
+    </div>
+    <div class="row g18 grow center" style="justify-content:center;padding-right:104px">
+      <div class="col g8" style="max-width:270px">
+        <span class="lbl">Sending is one-way</span>
+        <p class="hint">A text cannot be pulled back, so it gets the same guard as anything else that leaves the room.</p>
+        <div class="chip a" style="align-self:flex-start;margin-top:5px">Twilio is rate-limited &middot; may take a minute</div>
+      </div>
+      <div class="guard" data-phase="closed" id="guardTx">
+        <div class="well">
+          <span class="lbl">Guard is up &middot; switch is live</span>
+          <button class="gsw" data-guard-throw><i class="bat"></i><span class="txt">Send text</span></button>
+        </div>
+        <button class="cover" data-guard-lift><i class="hinge"></i><b>Lift guard</b><i>Confirm &mdash; send to Carlos</i></button>
+        <button class="key cancel" data-go="20">Cancel</button>
+      </div>
+    </div>
+  </div>
+  <div class="sbody col g14" id="txDone" style="display:none;align-items:center;justify-content:center">
+    <div class="lamp on" style="padding:11px 20px;font-size:12px;letter-spacing:.3em"><i class="bulb" style="width:10px;height:10px"></i>Text sent</div>
+    <div class="panel pad-lg" style="width:520px">
+      <div class="mini">To Carlos Ferreira &middot; delivered 15:58</div>
+      <div class="readout" style="margin-top:11px;font-size:16px;line-height:1.6">Can you cover the Sig Ep pickup Friday at four? I&rsquo;m in lab until three thirty.</div>
+    </div>
+    <div class="row g8"><button class="key pri" data-go="22">Open the inbox</button><button class="key" id="txReset">Run the confirm again</button></div>
+  </div>
+</section>
+
+<!-- ── 22 INBOX ───────────────────────────────────────────────────────────-->
+<section class="screen" id="sc22">
+  <div class="shead">
+    <span class="no">22</span><h1 class="stencil sc-w">Inbox</h1>
+    <span class="sub"><span id="unreadN">4</span> unread &middot; james@campuscreamery.co</span>
+  </div>
+  <div class="sbody col g13" style="gap:13px">
+    <div class="row g8 center" style="flex:0 0 auto">
+      <div class="lamp on"><i class="bulb"></i><span id="unreadN2">4</span> unread</div>
+      <div class="lamp"><i class="bulb"></i>7 today</div>
+      <button class="key sm" id="markAll" style="margin-left:auto">Mark all as read</button>
+    </div>
+    <div class="panel grow scroll" style="padding:0" id="inboxList"></div>
+  </div>
+</section>
+
+<!-- ── 23 EMAIL OPEN ──────────────────────────────────────────────────────-->
+<section class="screen" id="sc23">
+  <div class="shead">
+    <span class="no">23</span><h1 class="stencil sc-w" id="emSubj">Sig Ep order &mdash; 3 gal?</h1>
+    <span class="sub" id="emWhen">Today 14:21</span>
+  </div>
+  <div class="sbody row g18">
+    <div class="grow col g13" style="min-height:0">
+      <div class="row center g13" style="flex:0 0 auto">
+        <div class="av" style="width:44px;height:44px;font-size:16px" id="emAv">CF</div>
+        <div class="grow"><div class="readout" style="font-size:15px" id="emFrom">Carlos Ferreira</div>
+        <div class="mini" id="emAddr">carlos@campuscreamery.co</div></div>
+        <button class="key pri" id="emSummarize" style="min-width:170px">Summarize this</button>
+      </div>
+      <div id="emSummary" style="display:none;flex:0 0 auto"></div>
+      <div class="grow scroll body-text" id="emBody" style="padding-right:8px"></div>
+    </div>
+    <div class="col g14" style="width:250px;flex:0 0 auto">
+      <div class="panel pad col g8">
+        <span class="lbl">Thread</span><span class="readout" style="font-size:13px">4 messages &middot; since Tuesday</span>
+        <hr class="rule">
+        <span class="lbl">Attachments</span><span class="readout" style="font-size:13px">None on this one</span>
+      </div>
+      <button class="key pri" data-go="24">Reply</button>
+      <button class="key" data-go="21">Text him instead</button>
+      <button class="key" data-go="22">Back to inbox</button>
+    </div>
+  </div>
+</section>
+
+<!-- ── 24 EMAIL SEND CONFIRM ──────────────────────────────────────────────-->
+<section class="screen" id="sc24">
+  <div class="shead">
+    <span class="no">24</span><h1 class="stencil sc-w">Send email</h1>
+    <span class="sub">Reply to Carlos Ferreira</span>
+  </div>
+  <div class="sbody col g13" id="emcPending" style="gap:13px">
+    <div class="row g14" style="flex:0 0 auto">
+      <div class="panel pad col g6 grow"><span class="lbl">To</span><span class="readout">Carlos Ferreira &middot; carlos@campuscreamery.co</span></div>
+      <div class="panel pad col g6 grow"><span class="lbl">Subject</span><span class="readout">Sig Ep &mdash; going with two and two</span></div>
+    </div>
+    <div class="panel pad col g8" style="flex:0 0 auto">
+      <span class="lbl">Body</span>
+      <p class="readout" style="font-size:14px;line-height:1.7">Let&rsquo;s do two vanilla bean and two brown butter. I&rsquo;ll take the four o&rsquo;clock dock slot myself &mdash; I&rsquo;m out of lab by three thirty. Flavor board attached so you can check the labels.</p>
+    </div>
+    <div class="attach" style="flex:0 0 auto">
+      <div class="th" id="attachThumb"></div>
+      <div class="grow"><div class="readout" style="font-size:13px">FLAVOR-BOARD-AUG16.JPG</div>
+      <div class="mini" style="color:#a2751a">2.4 MB &middot; taken today at 3:14 PM &middot; from your gallery</div></div>
+      <button class="key sm" data-go="26" style="min-width:120px">See the photo</button>
+    </div>
+    <div class="readback" style="flex:0 0 auto">
+      <div class="lbl" style="color:var(--amber)">Spoken back to you</div>
+      <p class="sp" style="margin-top:10px;font-size:18px">I&rsquo;ll email <em>Carlos Ferreira</em>, subject &ldquo;<em>Sig Ep &mdash; going with two and two</em>&rdquo;, with <em>one photo attached: flavor board, taken today at three fourteen PM</em>.</p>
+    </div>
+    <div class="row g18 grow center" style="justify-content:center;padding-right:104px">
+      <div class="guard" data-phase="closed" id="guardEm">
+        <div class="well">
+          <span class="lbl">Guard is up &middot; switch is live</span>
+          <button class="gsw" data-guard-throw><i class="bat"></i><span class="txt">Send email</span></button>
+        </div>
+        <button class="cover" data-guard-lift><i class="hinge"></i><b>Lift guard</b><i>Confirm &mdash; send with 1 photo</i></button>
+        <button class="key cancel" data-go="23">Cancel</button>
+      </div>
+    </div>
+  </div>
+  <div class="sbody col g14" id="emcDone" style="display:none;align-items:center;justify-content:center">
+    <div class="lamp on" style="padding:11px 20px;font-size:12px;letter-spacing:.3em"><i class="bulb" style="width:10px;height:10px"></i>Email sent with 1 attachment</div>
+    <div class="panel pad-lg" style="width:560px">
+      <div class="mini">To Carlos Ferreira &middot; sent 15:59 &middot; FLAVOR-BOARD-AUG16.JPG attached</div>
+      <div class="readout" style="margin-top:11px;font-size:16px;line-height:1.6">Let&rsquo;s do two vanilla bean and two brown butter. I&rsquo;ll take the four o&rsquo;clock dock slot myself.</div>
+    </div>
+    <div class="row g8"><button class="key pri" data-go="22">Back to inbox</button><button class="key" id="emcReset">Run the confirm again</button></div>
+  </div>
+</section>
+
+<!-- ── 25 CAMERA ──────────────────────────────────────────────────────────-->
+<section class="screen" id="sc25">
+  <div class="shead">
+    <span class="no">25</span><h1 class="stencil sc-r">Camera is on</h1>
+    <span class="sub" style="color:var(--red)">The lamp on the frame is lit while this screen is open</span>
+  </div>
+  <div class="sbody col g13" style="gap:13px">
+    <div class="vf">
+      <canvas data-scope="cam"></canvas>
+      <span class="scanbar"></span>
+      <span class="brk a"></span><span class="brk b"></span><span class="brk c"></span><span class="brk d"></span>
+      <div class="rec"><i class="dot"></i><b>Rec</b><span class="numbox" id="recTime" style="font-size:13px;color:var(--red);font-weight:700"></span></div>
+      <div class="hud">Front frame &middot; 1080p30<br>f/2.0 &middot; ISO 800 &middot; AWB<br>Nothing leaves the room</div>
+      <span class="recborder"></span>
+      <span class="flash" id="camFlash"></span>
+    </div>
+    <div class="row g8 center" style="flex:0 0 auto">
+      <button class="key pri" id="camShot" style="min-width:190px">Take a photo</button>
+      <button class="key dgr" id="camOff">Turn the camera off</button>
+      <button class="key" data-go="26">Open the gallery</button>
+      <span class="hint" style="margin-left:auto">Photos stay on the Pi until you send one somewhere.</span>
+    </div>
+  </div>
+</section>
+
+<!-- ── 26 GALLERY + DETAIL ────────────────────────────────────────────────-->
+<section class="screen" id="sc26">
+  <div class="shead">
+    <span class="no">26</span><h1 class="stencil sc-w">Gallery</h1>
+    <span class="sub" id="galSub">6 photos on this device</span>
+  </div>
+  <div class="sbody row g18" id="galGrid">
+    <div class="grow" style="display:grid;grid-template-columns:repeat(3,1fr);gap:11px;align-content:start;overflow:auto" id="galCells"></div>
+    <div class="col g14" style="width:296px;flex:0 0 auto">
+      <div class="panel pad-lg col g8 grow" id="galDetail"></div>
+      <div class="row g8"><button class="key pri grow" id="galKeep">Keep photo</button></div>
+      <div class="guard" data-phase="closed" id="guardGal" style="height:118px;max-width:none">
+        <div class="well">
+          <span class="lbl">Guard is up &middot; switch is live</span>
+          <button class="gsw" data-guard-throw style="width:150px;height:48px"><i class="bat" style="height:38px"></i><span class="txt">Forget it</span></button>
+        </div>
+        <button class="cover" data-guard-lift><i class="hinge"></i><b>Lift guard</b><i>Forget this photo &mdash; permanent</i></button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 27 MEMORY ──────────────────────────────────────────────────────────-->
+<section class="screen" id="sc27">
+  <div class="shead">
+    <span class="no">27</span><h1 class="stencil sc-w">What Atlas knows</h1>
+    <span class="sub"><span id="memN">6</span> things about you &middot; 1,284 in the store</span>
+  </div>
+  <div class="sbody row g18">
+    <div class="grow scroll col g8" id="memList" style="padding-right:6px"></div>
+    <div class="col g14" style="width:296px;flex:0 0 auto">
+      <div class="panel pad-lg col g8">
+        <span class="lbl">Selected</span>
+        <div class="readout" style="font-size:14px;line-height:1.5" id="memSel">Pick a fact on the left.</div>
+        <hr class="rule">
+        <div id="memProv"></div>
+      </div>
+      <div class="panel pad col g8 grow">
+        <span class="lbl">Ageing</span>
+        <p class="hint">Anything Atlas learned out loud shows how old it is. Old facts are not deleted &mdash; they are shown with their age so you can judge them.</p>
+      </div>
+      <div class="guard" data-phase="closed" id="guardMem" style="height:118px;max-width:none">
+        <div class="well">
+          <span class="lbl">Guard is up &middot; switch is live</span>
+          <button class="gsw" data-guard-throw style="width:150px;height:48px"><i class="bat" style="height:38px"></i><span class="txt">Forget it</span></button>
+        </div>
+        <button class="cover" data-guard-lift><i class="hinge"></i><b>Lift guard</b><i>Forget this fact &mdash; permanent</i></button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 28 JOBS ────────────────────────────────────────────────────────────-->
+<section class="screen" id="sc28">
+  <div class="shead">
+    <span class="no">28</span><h1 class="stencil sc-w">Jobs</h1>
+    <span class="sub">1 running &middot; 1 queued &middot; 1 finished</span>
+  </div>
+  <div class="sbody row g18">
+    <div class="grow col g13" style="gap:13px;min-height:0">
+      <div class="job run">
+        <div class="row between center"><div class="row center g8"><i class="lamp on" style="padding:3px 7px"><i class="bulb"></i>Running</i><span class="lbl">Started 4 min ago</span></div><span class="mini" id="jbEta">About 2 min left</span></div>
+        <div class="readout" style="margin-top:10px;font-size:16px">Compare point-of-sale systems for Campus Creamery</div>
+        <div class="row center g13" style="margin-top:12px">
+          <div class="pbar grow"><i id="jbBar" style="transform:scaleX(.62)"></i></div>
+          <div class="numbox med glow" id="jbPct"></div><span class="quiet">%</span>
+        </div>
+        <div class="row g6 wrap" style="margin-top:11px">
+          <span class="chip on">14 sources read</span><span class="chip">3 pages open</span><span class="chip">Brave search</span>
+        </div>
+        <div class="row g8" style="margin-top:12px"><button class="key sm" data-go="9" style="min-width:150px">Watch it work</button><button class="key sm dgr">Stop the job</button></div>
+      </div>
+      <div class="job queue">
+        <div class="row between center"><div class="row center g8"><i class="lamp cau" style="padding:3px 7px"><i class="bulb"></i>Queued</i><span class="lbl">Waiting on the job above</span></div></div>
+        <div class="readout" style="margin-top:10px;font-size:15px">Draft a supplier email to Central Dairy about August cream pricing</div>
+      </div>
+      <div class="job done grow" style="display:flex;flex-direction:column">
+        <div class="row between center"><div class="row center g8"><i class="lamp wht" style="padding:3px 7px"><i class="bulb"></i>Finished</i><span class="lbl">2 h ago &middot; you were at practice</span></div>
+        <div class="prov sm" data-p="sourced"><span class="pl"><i class="pb"></i><span class="pt"><b>Sourced</b></span></span><span class="pn">9</span></div></div>
+        <div class="readout" style="margin-top:10px;font-size:15px">Meta-analysis of spaced repetition intervals</div>
+        <p class="hint" style="margin-top:8px;font-size:12px">Expanding intervals beat fixed ones for thirty-day retention, but only after the third review. Before that the difference is noise. Nine papers, two of them contradicting.</p>
+        <div class="row g8" style="margin-top:auto"><button class="key sm pri" id="jbOpen" style="min-width:150px">Open the result</button><button class="key sm">Save to a folder</button></div>
+      </div>
+    </div>
+    <div class="col g14" style="width:314px;flex:0 0 auto">
+      <div class="panel pad-lg col g10 grow">
+        <span class="lbl">While you were away</span>
+        <span class="mini lbl-d">Since 2:02 PM</span>
+        <hr class="rule">
+        <div class="col g10" id="awayList"></div>
+        <hr class="rule" style="margin-top:auto">
+        <p class="hint">Atlas does not read these to you unless you ask. It waits.</p>
+      </div>
+      <button class="key" data-go="22">Open the inbox</button>
+    </div>
+  </div>
+</section>
+
+<!-- ── 29 MUTED ───────────────────────────────────────────────────────────-->
+<section class="screen" id="sc29">
+  <div class="sbody col g18 center" style="justify-content:center">
+    <div class="mutemark stencil sc-a">Muted</div>
+    <div class="lamp cau" style="padding:11px 20px;font-size:12px;letter-spacing:.3em"><i class="bulb" style="width:10px;height:10px"></i>Microphone is off at the switch</div>
+    <p class="readout" style="max-width:640px;text-align:center;font-size:17px;line-height:1.65">Atlas can&rsquo;t hear you. The mic switch on the left edge of the frame is down. Flip it up, or unmute here.</p>
+    <div class="row g14" style="margin-top:5px">
+      <div class="panel pad col g6" style="width:250px"><span class="lbl">Still running</span><span class="readout" style="font-size:13px">Timers and alarms. They will still sound.</span></div>
+      <div class="panel pad col g6" style="width:250px"><span class="lbl">Not running</span><span class="readout" style="font-size:13px">Wake word, transcription, the camera.</span></div>
+      <div class="panel pad col g6" style="width:250px"><span class="lbl">Muted since</span><span class="readout" style="font-size:13px">3:12 PM &middot; 47 minutes ago</span></div>
+    </div>
+    <div class="row g8" style="margin-top:9px">
+      <button class="key pri" id="unmuteKey" style="min-width:200px">Unmute the microphone</button>
+      <button class="key" data-go="31">Check what else is live</button>
+    </div>
+  </div>
+</section>
+
+<!-- ── 30 OFFLINE ─────────────────────────────────────────────────────────-->
+<section class="screen" id="sc30">
+  <div class="shead">
+    <span class="no">30</span><h1 class="stencil sc-r">No route to the model</h1>
+    <span class="sub" style="color:var(--red)">Wi-Fi is up. Names are not resolving.</span>
+  </div>
+  <div class="sbody row g18">
+    <div class="grow col g14">
+      <div class="panel" style="border-color:#54211c;flex:0 0 auto"><div id="diagList"></div></div>
+      <div class="panel pad-lg grow col g10">
+        <span class="lbl">What to try</span>
+        <p class="readout" style="font-size:14px;line-height:1.7">WUSTL-Guest drops its DNS resolver after about twelve hours. Forget the network and join it again from Settings, or move to WUSTL-Secure with your key. Atlas will reconnect on its own the moment names resolve.</p>
+        <hr class="rule">
+        <div class="row center g14">
+          <button class="key pri" id="retryKey" style="min-width:190px">Retry now</button>
+          <span class="mini">Retrying on its own in <span id="retryIn" style="color:var(--amber)">0:24</span></span>
+        </div>
+      </div>
+    </div>
+    <div class="col g14" style="width:314px;flex:0 0 auto">
+      <div class="panel pad-lg col g8">
+        <span class="lbl">Still works offline</span>
+        <span class="readout" style="font-size:13px">Timers &middot; alarms &middot; the calendar already synced &middot; everything in memory &middot; the camera</span>
+        <hr class="rule">
+        <span class="lbl">Does not work</span>
+        <span class="readout" style="font-size:13px">Answers &middot; research &middot; weather &middot; mail &middot; texts</span>
+      </div>
+      <div class="panel pad col g6 grow">
+        <span class="lbl">Last reached the model</span>
+        <span class="readout" style="font-size:19px">3:47 PM</span>
+        <span class="mini">12 minutes ago</span>
+        <hr class="rule">
+        <span class="lbl">Queued for when it is back</span>
+        <span class="readout" style="font-size:13px">2 jobs, 1 email draft</span>
+      </div>
+      <button class="key" data-go="31">Open health</button>
+    </div>
+  </div>
+</section>
+
+<!-- ── 31 HEALTH ──────────────────────────────────────────────────────────-->
+<section class="screen" id="sc31">
+  <div class="shead">
+    <span class="no">31</span><h1 class="stencil sc-w">Health</h1>
+    <span class="sub">11 live &middot; 1 degraded &middot; checked 40 s ago</span>
+  </div>
+  <div class="sbody col g14">
+    <div class="grow" style="display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:1fr;gap:9px;overflow:auto;padding-right:4px" id="healthGrid"></div>
+    <div class="row g14" style="flex:0 0 auto">
+      <div class="panel pad row between center grow">
+        <div><span class="lbl">CPU</span><div class="readout" style="font-size:19px;margin-top:4px">58 &deg;C</div></div>
+        <div><span class="lbl">Uptime</span><div class="readout" style="font-size:19px;margin-top:4px">11 d 04:12</div></div>
+        <div><span class="lbl">Memory store</span><div class="readout" style="font-size:19px;margin-top:4px">1,284 facts</div></div>
+        <div><span class="lbl">Wake words heard</span><div class="readout" style="font-size:19px;margin-top:4px">38 today</div></div>
+        <div><span class="lbl">False wakes</span><div class="readout" style="font-size:19px;margin-top:4px;color:var(--amber)">3 today</div></div>
+      </div>
+      <button class="key arm" id="lampTest" style="min-width:180px">Lamp test</button>
+    </div>
+  </div>
+</section>
+  </div>
+</main>
+
+<!-- ═══ COMMAND STRIP ═════════════════════════════════════════════════════ -->
+<footer id="cmd" class="tex">
+  <div id="softKeys"></div>
+  <div id="cmdRight">
+    <button class="key" id="ptt" style="min-width:112px">Push to talk</button>
+    <button class="key arm" id="runFlow" style="min-width:112px">Run flow</button>
+  </div>
+</footer>
+
+<!-- ═══ SCREEN INDEX ══════════════════════════════════════════════════════ -->
+<div id="index" role="dialog" aria-label="Screen index" aria-modal="true">
+  <div class="ihead">
+    <h2 class="stencil" style="font-size:16px">Screen index</h2>
+    <span class="lbl">31 screens &middot; 9 systems</span>
+    <span class="lbl lbl-d" style="margin-left:auto">Press esc to close &middot; keys 1&ndash;9 select a system</span>
+  </div>
+  <div class="igrid" id="indexGrid"></div>
+  <div class="ifoot">
+    <button class="key pri" data-go="2" style="min-width:150px">Back to idle</button>
+    <button class="key" id="indexFlow" style="min-width:150px">Run the voice flow</button>
+    <span class="hint" style="margin-left:auto">Atlas &middot; unit ATL-0117 &middot; Danforth Hall 412 &middot; St. Louis</span>
+  </div>
+</div>
+
+<div id="toast"><i class="bulb"></i><b id="toastTxt"></b></div>
+</div></div>
+<script>
+"use strict";
+/* ═══ UTILITIES ═════════════════════════════════════════════════════════ */
+const $=(s,r)=>(r||document).querySelector(s), $$=(s,r)=>[...(r||document).querySelectorAll(s)];
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const pad=n=>String(n).padStart(2,'0');
+
+const DSTRIP='<i>'+[0,1,2,3,4,5,6,7,8,9,0].map(d=>'<b>'+d+'</b>').join('')+'</i>';
+const drumHTML=v=>'<span class="drum" data-v="'+v+'" style="--d:'+v+'">'+DSTRIP+'</span>';
+const numHTML=s=>[...s].map(c=>/[0-9]/.test(c)?drumHTML(+c):'<em class="sep">'+c+'</em>').join('');
+function setDrum(el,v){
+  const cur=+el.dataset.v; if(cur===v)return;
+  if(cur===9&&v===0&&!RM){
+    el.style.setProperty('--d',10); clearTimeout(el._t);
+    el._t=setTimeout(()=>{el.classList.add('nosnap');el.style.setProperty('--d',0);
+      requestAnimationFrame(()=>requestAnimationFrame(()=>el.classList.remove('nosnap')));},360);
+  } else el.style.setProperty('--d',v);
+  el.dataset.v=v;
+}
+function setNum(el,str){
+  str=String(str); const pat=str.replace(/[0-9]/g,'#');
+  if(el.dataset.pat!==pat){ el.innerHTML=numHTML(str); el.dataset.pat=pat; el.classList.add('numbox'); return; }
+  const ds=el.querySelectorAll('.drum'); let i=0;
+  for(const c of str) if(/[0-9]/.test(c)) setDrum(ds[i++],+c);
+}
+let toastT;
+function toast(msg,kind){
+  const t=$('#toast'); $('#toastTxt').textContent=msg;
+  t.className='on'+(kind?' '+kind:''); clearTimeout(toastT);
+  toastT=setTimeout(()=>t.className='',2400);
+}
+function provHTML(kind,n,sub,cls){
+  const T={sourced:'Sourced',recalled:'Recalled',general:'General knowledge',none:'No source found',error:'Tool error'};
+  return '<div class="prov'+(cls?' '+cls:'')+'" data-p="'+kind+'"><span class="pl"><i class="pb"></i><span class="pt">'+
+    '<b>'+T[kind]+'</b>'+(sub?'<i>'+sub+'</i>':'')+'</span></span>'+(n?'<span class="pn">'+n+'</span>':'')+'</div>';
+}
+
+/* ═══ STAGE FIT ═════════════════════════════════════════════════════════ */
+const deck=$('#deck');
+function fit(){ deck.style.transform='scale('+Math.min(innerWidth/1280,innerHeight/800)+')'; }
+addEventListener('resize',fit); fit();
+
+/* ═══ GROUPS / ROUTER ═══════════════════════════════════════════════════ */
+const GROUPS=[
+ {n:'State',s:[[1,'Boot','Self test'],[2,'Idle','Clock'],[3,'Sleep','Dimmed'],[4,'Wake','Heard you'],[5,'Listen','Transcript'],[6,'Think','Working'],[7,'Speak','Caption']]},
+ {n:'Know', s:[[8,'Answer','With sources'],[9,'Research','In progress'],[10,'Results','By source'],[11,'Article','Reader'],[12,'Follow-up','Thread']]},
+ {n:'Wx',   s:[[13,'St. Louis','Now + 2 days']]},
+ {n:'Time', s:[[14,'Timers','Live'],[15,'Alarms','Toggles'],[16,'Edit alarm','Sound + volume']]},
+ {n:'Cal',  s:[[17,'Agenda','Today'],[18,'Edit event','Fields'],[19,'Confirm','Guarded']]},
+ {n:'Comm', s:[[20,'Which one?','Contacts'],[21,'Text','Compose'],[22,'Inbox','Mail'],[23,'Message','Open'],[24,'Send mail','Guarded']]},
+ {n:'Vis',  s:[[25,'Camera','Recording'],[26,'Gallery','Photos']]},
+ {n:'Mind', s:[[27,'Memory','What it knows'],[28,'Jobs','Delegation']]},
+ {n:'Sys',  s:[[29,'Muted','Mic off'],[30,'Offline','Error'],[31,'Health','Capabilities']]},
+];
+const GOF={}; GROUPS.forEach((g,gi)=>g.s.forEach(s=>GOF[s[0]]=gi));
+const TITLES={}; GROUPS.forEach(g=>g.s.forEach(s=>TITLES[s[0]]=s[1]));
+
+const rail=$('#rail');
+GROUPS.forEach((g,i)=>{
+  const b=document.createElement('button');
+  b.className='rk'; b.dataset.grp=i;
+  b.innerHTML='<i class="bulb"></i><em>'+g.n.toUpperCase()+'</em><u>'+g.s.length+'</u>';
+  b.addEventListener('click',()=>go(g.s[0][0]));
+  rail.appendChild(b);
+});
+
+const STATE_LABEL={1:['Self test','cau'],2:['Standby',''],3:['Asleep','cau'],4:['Wake','' ],5:['Listening',''],
+  6:['Working','cau'],7:['Speaking',''],25:['Recording','warn'],29:['Muted','cau'],30:['No link','warn']};
+let cur=0, flowOn=false;
+const ENTER={}, EXIT={};
+
+function go(n,fromFlow){
+  n=+n; if(!TITLES[n])return;
+  if(!fromFlow) flowOn=false;
+  if(cur&&EXIT[cur])EXIT[cur]();
+  const prev=cur; cur=n;
+  $$('.screen').forEach(s=>s.classList.toggle('on',s.id==='sc'+n));
+  document.body.classList.toggle('chrome-off',n===1||n===3||n===4);
+  const gi=GOF[n];
+  $$('#rail .rk').forEach(k=>k.classList.toggle('sel',+k.dataset.grp===gi));
+  buildSoftKeys(gi,n);
+  $$('#indexGrid .key').forEach(k=>k.classList.toggle('sel',+k.dataset.go===n));
+  const st=STATE_LABEL[n]||['Standby',''];
+  $('#stateTxt').textContent=st[0]; $('#stateAnn').className=st[1];
+  $('#lampMute').classList.toggle('cau',n===29); $('#lampMute').classList.toggle('on',false);
+  $('#lampNet').classList.toggle('warn',n===30); $('#lampNet').classList.toggle('on',n!==30);
+  $('#lampMdl').classList.toggle('warn',n===30); $('#lampMdl').classList.toggle('on',n!==30);
+  $('#lampMic').classList.toggle('on',n!==29);
+  if(prev!==n&&ENTER[n])ENTER[n]();
+  sizeCanvases();
+}
+function buildSoftKeys(gi,n){
+  const w=$('#softKeys'); w.innerHTML='';
+  GROUPS[gi].s.forEach(s=>{
+    const b=document.createElement('button');
+    b.className='key'+(s[0]===n?' sel':''); b.dataset.go=s[0];
+    b.innerHTML='<span>'+s[1]+'</span><u>'+s[2]+'</u>';
+    w.appendChild(b);
+  });
+}
+document.addEventListener('click',e=>{
+  const g=e.target.closest('[data-go]'); if(g&&!g.closest('.sw')){ go(g.dataset.go); }
+});
+
+/* ═══ SCREEN INDEX ══════════════════════════════════════════════════════ */
+const ig=$('#indexGrid');
+GROUPS.forEach(g=>{
+  const d=document.createElement('div'); d.className='grp';
+  d.innerHTML='<span class="lbl">'+g.n+'</span>'+g.s.map(s=>
+    '<button class="key" data-go="'+s[0]+'"><span class="n">'+pad(s[0])+'</span><span class="t">'+s[1]+'</span></button>').join('');
+  ig.appendChild(d);
+});
+function idx(open){ $('#index').classList.toggle('on',open); $('#indexKey').classList.toggle('act',open); }
+$('#indexKey').addEventListener('click',()=>idx(!$('#index').classList.contains('on')));
+$('#indexGrid').addEventListener('click',e=>{ if(e.target.closest('.key')) idx(false); });
+$('#index .ifoot').addEventListener('click',e=>{ if(e.target.closest('[data-go]')) idx(false); });
+$('#indexFlow').addEventListener('click',()=>{ idx(false); runFlow(); });
+
+/* ═══ CLOCKS ════════════════════════════════════════════════════════════ */
+const MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+const DAYS=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+let dimDrift=0;
+function tickClock(){
+  const d=new Date(), h=d.getHours(), m=d.getMinutes(), s=d.getSeconds();
+  $('#glareTime').textContent=pad(h)+':'+pad(m);
+  $('#glareDate').textContent=DAYS[d.getDay()].slice(0,3).toUpperCase()+' '+d.getDate()+' '+MONTHS[d.getMonth()].slice(0,3).toUpperCase();
+  setNum($('#idleClock'),pad(h)+':'+pad(m));
+  setNum($('#idleSec'),pad(s));
+  $('#idleDate').textContent=DAYS[d.getDay()]+' '+d.getDate()+' '+MONTHS[d.getMonth()];
+  $('#secNeedle').style.transform='rotate('+(s*6)+'deg)';
+  setNum($('#dimTime'),pad(h)+':'+pad(m));
+  if(s%20===0){ dimDrift=(dimDrift+1)%4;
+    const p=[[-140,-70],[130,60],[-110,80],[120,-60]][dimDrift];
+    $('#dimClock').style.transform='translate(calc(-50% + '+p[0]+'px), calc(-50% + '+p[1]+'px))'; }
+  updateAgendaNow(); updateIdleNext();
+}
+setInterval(tickClock,250);
+
+/* ═══ 1 BOOT ════════════════════════════════════════════════════════════ */
+const POST=[['Power rail','5 V 3 A · 4.98 V'],['Microphone array','ReSpeaker 2-mic · 16 kHz'],['Speaker','3 W · left channel'],
+  ['Wake word','openWakeWord · “atlas”'],['Speech to text','Whisper small.en'],['Speech to speech','Piper · voice Amy'],
+  ['Network','WUSTL-Guest · −52 dBm'],['Model link','Claude API · 1.1 s'],['Calendar','Google · 2 calendars'],
+  ['Mail','Gmail · 7 today'],['Camera','CSI-2 · 1080p30'],['Memory store','1,284 facts']];
+$('#postList').innerHTML=POST.map(p=>'<div class="r"><i class="bulb"></i><span>'+p[0]+'</span><span class="ok">'+p[1]+'</span></div>').join('');
+$('#bootBar').innerHTML=Array.from({length:32},()=>'<s></s>').join('');
+let bootT=[], bootAuto=true;
+function startBoot(){
+  bootT.forEach(clearTimeout); bootT=[];
+  const rows=$$('#postList .r'), bars=$$('#bootBar s');
+  rows.forEach(r=>r.classList.remove('up')); bars.forEach(b=>b.classList.remove('lit'));
+  setNum($('#bootPct'),'000');
+  $('#bootMsg').textContent='Warming the phosphor. Every subsystem reports for itself — nothing is assumed live until it answers.';
+  const step=RM?10:190;
+  rows.forEach((r,i)=>bootT.push(setTimeout(()=>{
+    r.classList.add('up');
+    const pct=Math.round((i+1)/rows.length*100);
+    setNum($('#bootPct'),pad(pct).padStart(3,'0'));
+    bars.forEach((b,j)=>b.classList.toggle('lit',j<Math.round(pct/100*32)));
+  },step*(i+1))));
+  bootT.push(setTimeout(()=>{
+    $('#bootMsg').textContent='All twelve subsystems answered. Atlas is listening. Say “Atlas” to start, or touch anything on the deck.';
+    if(bootAuto) bootT.push(setTimeout(()=>{ if(cur===1) go(2); },RM?200:1600));
+  },step*(rows.length+1)));
+}
+ENTER[1]=startBoot; EXIT[1]=()=>{bootT.forEach(clearTimeout);bootT=[];};
+$('#bootReplay').addEventListener('click',()=>{ bootAuto=false; startBoot(); });
+
+/* ═══ 2 IDLE — clock ring ═══════════════════════════════════════════════ */
+(function(){
+  let s='';
+  for(let i=0;i<60;i++){
+    const a=i*6*Math.PI/180, big=i%5===0;
+    const r1=big?238:246, r2=262;
+    const x1=267+Math.sin(a)*r1, y1=267-Math.cos(a)*r1, x2=267+Math.sin(a)*r2, y2=267-Math.cos(a)*r2;
+    s+='<line x1="'+x1.toFixed(1)+'" y1="'+y1.toFixed(1)+'" x2="'+x2.toFixed(1)+'" y2="'+y2.toFixed(1)+
+       '" stroke="'+(big?'#3BFF9E':'#1c4c36')+'" stroke-width="'+(big?2:1)+'" opacity="'+(big?.75:.6)+'"/>';
+  }
+  s+='<circle cx="267" cy="267" r="266" fill="none" stroke="#173226"/>';
+  s+='<circle cx="267" cy="267" r="232" fill="none" stroke="#0f2018"/>';
+  $('#clockRing').innerHTML=s;
+})();
+const IDLE_NEXT=[[1080,'6:00 PM','Lacrosse · Francis Field'],[1260,'9:00 PM','Chem 261 pre-lab 6']];
+function updateIdleNext(){
+  const d=new Date(), now=d.getHours()*60+d.getMinutes();
+  let n=IDLE_NEXT.find(e=>e[0]>now)||IDLE_NEXT[0];
+  let diff=n[0]-now; if(diff<0)diff+=1440;
+  $('#idleEvtT').textContent=n[1]; $('#idleEvtN').textContent=n[2];
+  $('#idleEvtIn').textContent='In '+(diff>=60?Math.floor(diff/60)+' h ':'')+(diff%60)+' m';
+}
+
+/* ═══ 3 SLEEP ═══════════════════════════════════════════════════════════ */
+ENTER[3]=()=>{};
+
+/* ═══ 4 WAKE ════════════════════════════════════════════════════════════ */
+$('#wakeTicks').innerHTML=Array.from({length:20},()=>'<s></s>').join('');
+let wakeT=[];
+ENTER[4]=()=>{
+  wakeT.forEach(clearTimeout); wakeT=[];
+  const ticks=$$('#wakeTicks s'); ticks.forEach(t=>t.className='');
+  ticks.forEach((t,i)=>wakeT.push(setTimeout(()=>{ if(i<19)t.className='lit'; },RM?5:26*i)));
+  const sc=$('#sc4'); sc.classList.remove('on'); void sc.offsetWidth; sc.classList.add('on');
+  if(flowOn) wakeT.push(setTimeout(()=>{ if(flowOn&&cur===4) go(5,true); },RM?200:1450));
+};
+EXIT[4]=()=>{wakeT.forEach(clearTimeout);wakeT=[];};
+
+/* ═══ SCOPE CANVASES ════════════════════════════════════════════════════ */
+const canvases=$$('canvas[data-scope]');
+function sizeCanvases(){
+  const dpr=Math.min(devicePixelRatio||1,2);
+  canvases.forEach(c=>{ const r=c.getBoundingClientRect(); if(!r.width)return;
+    const w=Math.round(r.width*dpr), h=Math.round(r.height*dpr);
+    if(c.width!==w||c.height!==h){c.width=w;c.height=h;} });
+}
+addEventListener('resize',sizeCanvases);
+let micLevel=0, speakLevel=0, tPhase=0;
+function drawWave(c,level,hue){
+  const g=c.getContext('2d'), w=c.width, h=c.height;
+  g.fillStyle='rgba(0,0,0,'+(RM?1:.30)+')'; g.fillRect(0,0,w,h);
+  g.lineWidth=Math.max(1.6,w/620); g.strokeStyle=hue; g.beginPath();
+  for(let x=0;x<w;x+=2){
+    const u=x/w;
+    const y=h/2+Math.sin(u*14+tPhase*2.1)*h*.16*level
+      +Math.sin(u*33-tPhase*3.4)*h*.11*level
+      +Math.sin(u*61+tPhase*1.3)*h*.06*level
+      +(RM?0:(Math.random()-.5)*h*.02*level);
+    x?g.lineTo(x,y):g.moveTo(x,y);
+  }
+  g.stroke();
+  g.strokeStyle='rgba(59,255,158,.20)'; g.lineWidth=1;
+  g.beginPath(); g.moveTo(0,h/2); g.lineTo(w,h/2); g.stroke();
+}
+const hashRnd=(i,j)=>{const x=Math.sin(i*12.9898+j*78.233)*43758.5453;return x-Math.floor(x);};
+const camBuf=document.createElement('canvas'); camBuf.width=176; camBuf.height=110;
+const camCtx=camBuf.getContext('2d'), camImg=camCtx.createImageData(176,110);
+function drawCam(c){
+  const g=c.getContext('2d'), t=tPhase, d=camImg.data;
+  for(let j=0;j<110;j++){ const v=j/110;
+    for(let i=0;i<176;i++){ const u=i/176;
+      const du=u-.30, dv=v-.26;
+      let b=.02
+        +.58*Math.exp(-(du*du*30+dv*dv*44))
+        +.30*Math.exp(-((u-.81)*(u-.81)*130+(v-.68)*(v-.68)*96))
+        +.05*Math.sin(u*9+t*.24)*Math.cos(v*7-t*.18)
+        +((RM?hashRnd(i,j):Math.random())-.5)*.12;
+      b=b<0?0:b>1?1:b;
+      const k=(j*176+i)*4;
+      d[k]=3+b*40; d[k+1]=9+b*186; d[k+2]=7+b*108; d[k+3]=255;
+    } }
+  camCtx.putImageData(camImg,0,0);
+  g.imageSmoothingEnabled=false;
+  g.drawImage(camBuf,0,0,c.width,c.height);
+}
+let lastFrame=-999;
+function loop(ts){
+  requestAnimationFrame(loop);
+  if(RM){
+    /* Reduced motion: every frame is pixel-identical, so nothing appears to
+       move — but frames keep being produced, so the traces always render. */
+    if(ts-lastFrame<100) return;
+    lastFrame=ts; tPhase=1.4;
+    micLevel=cur===5?.62:0; speakLevel=cur===7?.55:0;
+  } else {
+    tPhase=ts/1000;
+    micLevel=cur===5?.55+.42*Math.abs(Math.sin(ts/430)+.4*Math.sin(ts/137)):0;
+    speakLevel=cur===7?.42+.40*Math.abs(Math.sin(ts/300)*Math.sin(ts/1100)):0;
+  }
+  canvases.forEach(c=>{
+    const sec=c.closest('.screen'); if(!sec||!sec.classList.contains('on')||!c.width)return;
+    const k=c.dataset.scope;
+    if(RM&&k!=='cam')return;   /* the waveform scopes are still SVG under reduced motion */
+    if(k==='listen')drawWave(c,micLevel,'#3BFF9E');
+    else if(k==='speak')drawWave(c,speakLevel,'#E9FFF4');
+    else if(k==='cam')drawCam(c);
+  });
+  const vu=$$('#vuMeter s'); if(cur===5&&vu.length){
+    const n=Math.round(micLevel*vu.length);
+    vu.forEach((s,i)=>{ s.className=i<n?('lit'+(i>vu.length-4?' pk':i>vu.length-7?' hi':'')):''; });
+  }
+}
+$('#vuMeter').innerHTML=Array.from({length:14},()=>'<s></s>').join('');
+/* Reduced motion: the oscilloscope traces become still SVG polylines drawn from
+   the same wave formula, so there is no frame loop and no CPU cost for them. */
+if(RM) $$('.scope').forEach(sc=>{
+  const c=sc.querySelector('canvas'); if(!c)return;
+  const hue=c.dataset.scope==='speak'?'#E9FFF4':'#3BFF9E', pts=[];
+  for(let x=0;x<=600;x+=3){ const u=x/600;
+    pts.push(x+','+(50+Math.sin(u*14+2.94)*10.4+Math.sin(u*33-4.76)*7.1+Math.sin(u*61+1.82)*3.9).toFixed(1)); }
+  sc.insertAdjacentHTML('afterbegin',
+    '<svg class="still" viewBox="0 0 600 100" preserveAspectRatio="none" aria-hidden="true">'+
+    '<line x1="0" y1="50" x2="600" y2="50" stroke="rgba(59,255,158,.22)" stroke-width="1" vector-effect="non-scaling-stroke"/>'+
+    '<polyline points="'+pts.join(' ')+'" fill="none" stroke="'+hue+'" stroke-width="1.8" vector-effect="non-scaling-stroke"/></svg>');
+});
+requestAnimationFrame(loop);
+
+/* ═══ 5 LISTENING ═══════════════════════════════════════════════════════ */
+const HEARD='atlas when is my chem lab and is the pre-lab done'.split(' ');
+const INTERIM=[['0.6 s','atlas when is my chem',0.62],['1.2 s','atlas when is my chem lab and is the pre',0.74],
+               ['1.9 s','atlas when is my chem lab and is the pre-lab done',0.93]];
+let lisT=[];
+function renderInterim(n){
+  $('#interimList').innerHTML=INTERIM.slice(0,n).map((g,i)=>
+   '<div class="row center g14" style="opacity:'+(i===n-1?1:.5)+'"><span class="mini lbl-d" style="width:44px;flex:0 0 auto">'+g[0]+
+   '</span><span class="mini" style="flex:1;min-width:0;color:'+(i===n-1?'var(--phos)':'var(--dim)')+'">'+g[1]+
+   '</span><span class="readout" style="font-size:12px;color:'+(g[2]>=.8?'var(--phos)':'var(--amber)')+'">'+g[2].toFixed(2)+'</span></div>').join('');
+}
+ENTER[5]=()=>{
+  lisT.forEach(clearTimeout); lisT=[]; renderInterim(0);
+  INTERIM.forEach((g,i)=>lisT.push(setTimeout(()=>renderInterim(i+1),RM?10:700+i*620)));
+  const el=$('#listenText');
+  el.innerHTML=HEARD.map(w=>'<span class="w">'+w+' </span>').join('')+'<span class="cursor"></span>';
+  const ws=$$('.w',el); const step=RM?8:172;
+  ws.forEach((w,i)=>lisT.push(setTimeout(()=>{
+    w.classList.add('in','hyp');
+    if(i>0)ws[i-1].classList.remove('hyp');
+    $('#listenEnd').textContent='Endpoint in '+(2.0-Math.min(1.8,i*.07)).toFixed(1)+' s';
+  },step*(i+1))));
+  lisT.push(setTimeout(()=>{
+    ws.forEach(w=>w.classList.remove('hyp'));
+    $('#listenEnd').textContent='Endpoint reached · 1.9 s of speech';
+    if(flowOn) lisT.push(setTimeout(()=>{ if(flowOn&&cur===5) go(6,true); },RM?200:800));
+  },step*(ws.length+1)));
+};
+EXIT[5]=()=>{lisT.forEach(clearTimeout);lisT=[];};
+
+/* ═══ 6 THINKING ════════════════════════════════════════════════════════ */
+const STAGES=[['Heard','“when is my chem lab and is the pre-lab done”','410 ms'],
+ ['Read the intent','Schedule lookup + coursework status','120 ms'],
+ ['Calendar','Google · this week · 2 calendars','340 ms'],
+ ['Syllabus','chem-261-fa26.pdf · searched “pre-lab due”','510 ms'],
+ ['Canvas','Assignments · pre-lab 6 · not opened','290 ms'],
+ ['Composing','Two facts, one warning, said plainly','—']];
+$('#thinkStages').innerHTML=STAGES.map(s=>'<div class="st"><i class="bulb"></i><b>'+s[0]+'</b><span class="dt">'+s[1]+'</span><span class="ms">'+s[2]+'</span></div>').join('');
+const TOOLS=[['calendar.list','calendarId = primary, creamery · timeMin = 2026-08-16','2 events','340 ms'],
+ ['files.search','q = “pre-lab due” in chem-261-fa26.pdf','1 hit, p. 3','510 ms'],
+ ['canvas.assignments','courseId = 261 · status = any','1 unopened','290 ms'],
+ ['memory.recall','q = “chem 261” · maxAge = 90 d','1 fact','40 ms']];
+$('#thinkTools').innerHTML=TOOLS.map(t=>
+ '<div class="tcall"><span class="tn">'+t[0]+'</span><span class="ta">'+t[1]+'</span>'+
+ '<span class="tr">'+t[2]+'</span><span class="tms">'+t[3]+'</span></div>').join('');
+(function(){ let s='';
+  for(let i=0;i<36;i++){ const a=i*10*Math.PI/180;
+    s+='<line x1="'+(118+Math.sin(a)*104).toFixed(1)+'" y1="'+(118-Math.cos(a)*104).toFixed(1)+'" x2="'+(118+Math.sin(a)*112).toFixed(1)+'" y2="'+(118-Math.cos(a)*112).toFixed(1)+'" stroke="#1c4c36" stroke-width="1"/>'; }
+  s+='<circle cx="118" cy="118" r="116" fill="none" stroke="#173226"/><circle cx="118" cy="118" r="78" fill="none" stroke="#0f2018"/><circle cx="118" cy="118" r="40" fill="none" stroke="#0f2018"/>';
+  $('#radarSvg').innerHTML=s;
+})();
+let thkT=[], thkTimer;
+ENTER[6]=()=>{
+  thkT.forEach(clearTimeout); thkT=[]; clearInterval(thkTimer);
+  const rows=$$('#thinkStages .st'); rows.forEach(r=>r.className='st');
+  $$('#thinkTools .tcall').forEach(c=>c.classList.remove('on'));
+  const t0=Date.now(); setNum($('#thinkMs'),'0.0');
+  thkTimer=setInterval(()=>setNum($('#thinkMs'),((Date.now()-t0)/1000).toFixed(1)),100);
+  const step=RM?12:380;
+  rows.forEach((r,i)=>{
+    thkT.push(setTimeout(()=>{ r.className='st run'; const c=$$('#thinkTools .tcall')[i-2]; if(c)c.classList.add('on'); },step*i));
+    thkT.push(setTimeout(()=>r.className='st up',step*(i+1)-40));
+  });
+  thkT.push(setTimeout(()=>{
+    clearInterval(thkTimer);
+    if(flowOn) thkT.push(setTimeout(()=>{ if(flowOn&&cur===6) go(7,true); },RM?200:520));
+  },step*rows.length));
+};
+EXIT[6]=()=>{thkT.forEach(clearTimeout);thkT=[];clearInterval(thkTimer);};
+
+/* ═══ 7 SPEAKING ════════════════════════════════════════════════════════ */
+const SPEAKVARS=[
+ {p:'sourced',n:'3',sub:'Calendar, syllabus and Canvas — all read just now',
+  cap:'Your Chem two sixty-one lab is Thursday at one PM in Louderman four fifty-eight. Pre-lab six is due Wednesday at eleven fifty-nine PM, and you have not opened it yet.',
+  src:[['Google Calendar','Chem 261 Lab · Thu 20 Aug, 1:00 PM · Louderman 458','Read 1 s ago'],
+       ['chem-261-fa26.pdf','Page 3 — “Pre-labs are due 11:59 PM the night before.”','Read 1 s ago'],
+       ['Canvas · Assignments','Pre-lab 6 — posted Friday, not opened','Read 1 s ago']]},
+ {p:'recalled',n:'2d',sub:'You told Atlas this two days ago',
+  cap:'You keep the base cooler at four degrees. You told me that on Friday, when the compressor was short-cycling.',
+  src:[['Memory store','“I keep the base cooler at four.” — recorded Fri 14 Aug','2 days old']]},
+ {p:'general',n:'',sub:'Model knowledge — nothing was looked up',
+  cap:'Overrun is the air whipped into ice cream. Premium brands sit near twenty-five percent. Supermarket tubs can run past ninety.',
+  src:[['No lookup','Atlas answered from what the model already knows. Treat it as a starting point, not a citation.','—']]},
+ {p:'none',n:'',sub:'Nothing matched — Atlas will not guess',
+  cap:'I could not find what Central Dairy charges for cream this month. There is no public price list, and I would be making the number up.',
+  src:[['Brave search','4 queries, 0 usable results','Just now'],
+       ['centraldairy.com','No pricing page. Wholesale is quote-only.','Just now']]},
+ {p:'error',n:'',sub:'Gmail refused the saved token — see health',
+  cap:'I could not read your mail. Gmail rejected the saved token, so I stopped rather than answer from a stale copy.',
+  src:[['Gmail API','401 — invalid credentials','Failed 2 s ago'],
+       ['What to do','Reconnect the mail account on the health screen.','—']]}];
+let spkI=0, spkT=[];
+function renderSpeak(){
+  const v=SPEAKVARS[spkI];
+  $('#speakProv').innerHTML=provHTML(v.p,v.n,v.sub);
+  $('#speakSrc').innerHTML=v.src.map(s=>'<div class="panel noscrew pad" style="padding:10px 12px"><div class="lbl">'+s[0]+
+    '</div><div class="readout" style="margin-top:5px;font-size:12px;line-height:1.5">'+s[1]+'</div><div class="mini lbl-d" style="margin-top:5px">'+s[2]+'</div></div>').join('');
+  spkT.forEach(clearTimeout); spkT=[];
+  const el=$('#speakText'), ws=v.cap.split(' ');
+  el.innerHTML=ws.map(w=>'<span class="w">'+w+' </span>').join('');
+  const nodes=$$('.w',el), step=(RM?6:88)*spkRate;
+  $('#speakWords').textContent='0 / '+nodes.length+' words';
+  $('#speakBar').style.transform='scaleX(0)';
+  nodes.forEach((w,i)=>spkT.push(setTimeout(()=>{ w.classList.add('in');
+    $('#speakBar').style.transform='scaleX('+((i+1)/nodes.length)+')';
+    $('#speakWords').textContent=(i+1)+' / '+nodes.length+' words'; },step*i)));
+  spkT.push(setTimeout(()=>{ if(flowOn&&cur===7) spkT.push(setTimeout(()=>{ if(flowOn&&cur===7) go(2,true); },RM?300:2400)); },step*nodes.length));
+}
+let spkRate=1;
+ENTER[7]=renderSpeak; EXIT[7]=()=>{spkT.forEach(clearTimeout);spkT=[];};
+$('#cycleBadge').addEventListener('click',()=>{ flowOn=false; spkI=(spkI+1)%SPEAKVARS.length; renderSpeak(); });
+$('#spkAgain').addEventListener('click',()=>{ flowOn=false; renderSpeak(); });
+$('#spkSlower').addEventListener('click',()=>{ spkRate=spkRate>1.4?1:1.7; flowOn=false; renderSpeak();
+  toast(spkRate>1?'Speaking slower — 0.6×':'Back to normal speed'); });
+$('#spkStop').addEventListener('click',()=>{ spkT.forEach(clearTimeout); spkT=[]; flowOn=false;
+  toast('Stopped talking','cau'); go(2); });
+
+/* ═══ VOICE FLOW ════════════════════════════════════════════════════════ */
+function runFlow(){ flowOn=false; spkI=0; go(4); flowOn=true; ENTER[4](); }
+$('#runFlow').addEventListener('click',runFlow);
+$('#ptt').addEventListener('click',()=>{ flowOn=false; go(5); toast('Talk key held — Atlas is listening'); });
+
+/* ═══ WEBAUDIO ══════════════════════════════════════════════════════════ */
+let AC=null, volume=68;
+function ac(){ if(!AC){ try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){return null;} } if(AC.state==='suspended')AC.resume(); return AC; }
+function tone(type,f,t0,dur,peak,glideTo){
+  const a=ac(); if(!a)return; const o=a.createOscillator(), g=a.createGain();
+  o.type=type; o.frequency.setValueAtTime(f,t0);
+  if(glideTo)o.frequency.exponentialRampToValueAtTime(glideTo,t0+dur);
+  g.gain.setValueAtTime(.0001,t0);
+  g.gain.exponentialRampToValueAtTime(Math.max(.0002,peak*(volume/100)),t0+.012);
+  g.gain.exponentialRampToValueAtTime(.0001,t0+dur);
+  o.connect(g); g.connect(a.destination); o.start(t0); o.stop(t0+dur+.03);
+}
+const SOUNDS={
+  chime:()=>{ const a=ac(); if(!a)return; const t=a.currentTime;
+    [[784,.30,1.5],[1568,.11,1.1],[2350,.05,.8]].forEach(p=>tone('sine',p[0],t,p[2],p[1]));
+    tone('sine',1046,t+.20,1.3,.20); },
+  marker:()=>{ const a=ac(); if(!a)return; const t=a.currentTime;
+    for(let i=0;i<4;i++) tone('square',400,t+i*.22,.13,.10); },
+  sweep:()=>{ const a=ac(); if(!a)return; const t=a.currentTime;
+    tone('sawtooth',196,t,.65,.09,1180); tone('sawtooth',392,t+.05,.55,.05,1760); },
+  klaxon:()=>{ const a=ac(); if(!a)return; const t=a.currentTime;
+    for(let i=0;i<3;i++){ tone('square',330,t+i*.34,.15,.10); tone('square',247,t+i*.34+.17,.15,.10); } },
+  drip:()=>{ const a=ac(); if(!a)return; const t=a.currentTime;
+    tone('sine',1320,t,.16,.16,520); tone('sine',1980,t,.10,.05,780); }
+};
+function beep(kind){ if(kind==='click'){ const a=ac(); if(a)tone('square',1400,a.currentTime,.03,.03); } }
+
+/* ═══ 8/9/10/11/12 KNOWLEDGE ════════════════════════════════════════════ */
+const ARTS=[
+ {tab:'Square',t:'Square for Restaurants pricing, 2026',pub:'square.com',date:'Updated 4 Aug 2026',rel:.94,
+  ex:'Free plan: $0 a month, 2.6% + 15¢ per tap, dip or swipe. Plus is $69 a month per location and adds coursing and a kitchen display.',
+  body:['Square for Restaurants has three tiers. Free costs nothing monthly and charges 2.6% plus 15 cents on in-person cards. Plus is $69 per location per month. Premium is quoted.',
+        'The Free tier includes the full point-of-sale app, unlimited devices at one location, and the customer-facing tip screen. It does not include coursing, a kitchen display system, or the shift-scheduling add-on.',
+        'There is no contract and no early termination fee on any tier. Processing rates are published rather than negotiated below about $250,000 a year in volume.'],cite:[0,2]},
+ {tab:'Square',t:'Square Reader for contactless and chip',pub:'square.com/hardware',date:'Updated 11 Jul 2026',rel:.81,
+  ex:'$59. Pairs over Bluetooth with an iPad or Android tablet. Battery lasts about a day of continuous market use.',
+  body:['The second-generation reader is $59 and takes tap, chip and phone wallets. It does not take magnetic stripe without the separate $10 dongle.',
+        'A firmware update from June 2026 fixed the Bluetooth pairing drop that affected readers left asleep for more than four hours. The update installs from the Square app.'],cite:[1]},
+ {tab:'Square',t:'Tips and sales tax on Square point of sale',pub:'support.squareup.com',date:'Updated 2 Jun 2026',rel:.77,
+  ex:'Tip screens can be preset percentages or a custom amount, and can be turned off per device. Tax rules are set per location.',
+  body:['Tipping is configured per device, so a cart can ask for tips while a catering tablet does not. Presets are percentage or flat amount, with a no-tip button that cannot be hidden.',
+        'Sales tax is per location and can be inclusive or added at the register. Missouri food-service tax is not automatically applied to packaged pints — that has to be set as a separate item tax class.'],cite:[]},
+ {tab:'Square',t:'Square vs. Toast for small food stands',pub:'Merchant Maverick',date:'12 Jun 2026',rel:.72,
+  ex:'For single-cart operations the reviewer favours Square on cost and Toast on kitchen features that a cart does not have.',
+  body:['The review scores Square 4.5 and Toast 4.0 for operations under $200,000 a year, and flips the order above that once a kitchen is involved.',
+        'The reviewer notes that Toast’s $0 hardware offer is financed through processing, and calculates the break-even at roughly $9,000 a month in card volume.'],cite:[]},
+ {tab:'Toast',t:'Toast Starter Kit — $0 up front',pub:'toasttab.com',date:'Updated 1 Aug 2026',rel:.88,
+  ex:'The Starter Kit is $0 up front with a three-year processing commitment at 3.09% + 15¢ per card-present transaction.',
+  body:['The Starter Kit includes one terminal, a router and a card reader with no hardware charge, in exchange for a 36-month processing agreement.',
+        'Software on the Starter tier is $0 a month. Leaving before the term ends means paying the remaining hardware value, listed at $1,349 for the two-terminal kit.',
+        'Toast is built around a kitchen: coursing, prep tickets and a display screen are the core of the product.'],cite:[0,1]},
+ {tab:'Toast',t:'What to know before signing a Toast contract',pub:'Restaurant Dive',date:'19 Mar 2026',rel:.69,
+  ex:'Operators report the three-year term is the sticking point, not the rate. Rates are renegotiable at renewal; the term is not.',
+  body:['Reporting from twelve operators found the processing rate itself was competitive, but the fixed term removed the ability to move when volume grew.',
+        'Two operators described paying out the hardware balance to leave early, at between $900 and $2,100.'],cite:[]},
+ {tab:'Toast',t:'Toast Go 2 handheld',pub:'toasttab.com',date:'Updated 22 May 2026',rel:.55,
+  ex:'$609 or bundled. Built for table service — takes payment at the table and prints to the kitchen.',
+  body:['The Go 2 is a rugged handheld with a full shift of battery and a built-in reader. It is aimed at table service and outdoor patios.',
+        'It requires the Toast hub on the same network, so it will not run standalone at a market cart.'],cite:[]},
+ {tab:'Clover',t:'Clover Station Duo pricing',pub:'clover.com',date:'Updated 30 Jul 2026',rel:.64,
+  ex:'$1,699 up front or $180 a month over 36 months. The Register plan is $89.95 a month per device.',
+  body:['The Station Duo is a two-screen counter terminal. Hardware is either bought outright or financed at $180 a month.',
+        'Software is $89.95 a month on the Register plan, which is the tier that includes item-level inventory. That alone puts Clover over the $80 ceiling before hardware.'],cite:[1]},
+ {tab:'Clover',t:'Clover early termination — what people actually paid',pub:'r/smallbusiness',date:'4 mo ago · 212 comments',rel:.58,
+  ex:'Fees depend on the reseller, not on Clover. Several posters paid nothing; two paid over $500.',
+  body:['Clover is sold through banks and independent resellers, so the contract terms vary. The thread is consistent that the reseller, not Clover, writes the termination clause.',
+        'Advice repeated throughout: get the termination fee in writing before signing, and buy hardware outright if you can.'],cite:[]},
+ {tab:'Shopify',t:'Shopify POS Lite vs. Pro',pub:'shopify.com',date:'Updated 9 Jul 2026',rel:.61,
+  ex:'Lite is included with any Shopify plan. Pro is $89 a month per location and adds staff roles and smart inventory.',
+  body:['If you already sell pints online through Shopify, Lite comes free with the plan and will take in-person payments with the Shopify reader.',
+        'Pro adds staff permissions, low-stock alerts and unlimited registers, at $89 a month per location.'],cite:[]},
+ {tab:'Shopify',t:'Selling at farmers markets with Shopify POS',pub:'Shopify Blog',date:'28 May 2026',rel:.59,
+  ex:'Walks through offline mode, market inventory and syncing sales back to the online store afterwards.',
+  body:['The guide covers pop-up inventory, so market stock and online stock stay separate until you reconcile them.',
+        'Offline card acceptance is limited: the reader queues transactions but the guide recommends not exceeding an hour without a connection.'],cite:[]},
+ {tab:'Forums',t:'Ice cream stand POS — what are you all using?',pub:'r/icecream',date:'4 mo ago · 87 comments',rel:.83,
+  ex:'“Square for the cart, Toast in the shop. The cart does not need coursing and I was not signing three years for a folding table.”',
+  body:['The top comment, from an operator with a cart and a storefront, splits the two: Square outside, Toast inside. Fourteen replies agree.',
+        'The recurring complaint about Square is the reader losing Bluetooth pairing. The recurring complaint about Toast is the term length.',
+        'Two posters run Clover because their bank bundled it, and both say they would not choose it again.'],cite:[0,1]},
+ {tab:'Forums',t:'Anyone regret signing a three-year Toast contract?',pub:'r/smallbusiness',date:'7 mo ago · 340 comments',rel:.74,
+  ex:'Mixed. Shops with kitchens mostly say no. Carts, trucks and stands mostly say yes.',
+  body:['The split in the thread is almost exactly along one line: whether the business has a kitchen that needs tickets.',
+        'Several truck operators describe paying the hardware balance to move to Square within the first year.'],cite:[]},
+ {tab:'Forums',t:'Farmers market card readers, 2026',pub:'r/Flipping',date:'2 mo ago · 44 comments',rel:.48,
+  ex:'Consensus is any Bluetooth reader is fine; battery life and a charged tablet matter more than the brand.',
+  body:['The thread is more about power than payments: a battery bank for the tablet is named as the real failure point at outdoor markets.',
+        'One poster measured 9 hours of reader battery across a full market day with roughly 200 taps.'],cite:[]}];
+
+const TABS=['All','Square','Toast','Clover','Shopify','Forums'];
+let curTab='All', curArt=0;
+function renderTabs(){
+  $('#resTabs').innerHTML=TABS.map(t=>{
+    const n=t==='All'?ARTS.length:ARTS.filter(a=>a.tab===t).length;
+    return '<button class="key'+(t===curTab?' sel':'')+'" data-tab="'+t+'"><span>'+t+'</span><u>'+n+' source'+(n===1?'':'s')+'</u></button>';
+  }).join('');
+}
+function renderList(){
+  const list=curTab==='All'?ARTS:ARTS.filter(a=>a.tab===curTab);
+  $('#resList').innerHTML=list.map(a=>{
+    const i=ARTS.indexOf(a);
+    return '<button class="acard" data-art="'+i+'"><span class="rel"><span class="n">'+a.rel.toFixed(2)+
+      '</span><span class="b"><i style="transform:scaleX('+a.rel+')"></i></span></span><span class="m">'+
+      '<h3>'+a.t+'</h3><span class="meta"><span class="chip">'+a.tab+'</span><span class="mini">'+a.pub+'</span><span class="mini lbl-d">'+a.date+'</span></span>'+
+      '<p>'+a.ex+'</p></span></button>';
+  }).join('');
+}
+$('#resTabs').addEventListener('click',e=>{const b=e.target.closest('[data-tab]');if(!b)return;curTab=b.dataset.tab;renderTabs();renderList();});
+$('#resList').addEventListener('click',e=>{const b=e.target.closest('[data-art]');if(!b)return;curArt=+b.dataset.art;openArt();});
+function openArt(){
+  const a=ARTS[curArt];
+  $('#artTitle').textContent=a.t;
+  $('#artSrcLine').textContent=a.pub+' · retrieved today 15:52';
+  $('#artMeta').innerHTML='<span class="chip on">'+a.tab+'</span><span class="chip">'+a.pub+'</span><span class="chip">'+a.date+'</span><span class="chip">Relevance '+a.rel.toFixed(2)+'</span>';
+  $('#artBody').innerHTML='<h2>What it says</h2>'+a.body.map((p,i)=>'<p'+(a.cite.includes(i)?' class="cited"':'')+'>'+p+'</p>').join('')+
+    '<h2>Why Atlas kept it</h2><p>'+a.ex+'</p>';
+  $('#artProv').innerHTML=provHTML(a.cite.length?'sourced':'general',a.cite.length?String(a.cite.length):'',
+    a.cite.length?'Lines quoted in the answer':'Read, but not quoted');
+  go(11);
+}
+renderTabs(); renderList();
+ENTER[11]=()=>{ if(!$('#artBody').innerHTML) openArt(); };
+['resSave','artSave','fuSave'].forEach(id=>$('#'+id).addEventListener('click',()=>toast('Saved to “Creamery — POS”')));
+['resDoc','fuDoc'].forEach(id=>$('#'+id).addEventListener('click',()=>toast('Document made · POS-COMPARISON.MD')));
+['resMail','fuMail'].forEach(id=>$('#'+id).addEventListener('click',()=>{toast('Drafted — confirm before it sends','cau');setTimeout(()=>go(24),500);}));
+
+/* 9 — research progress */
+const RLOG=['Read square.com/pricing — 4 figures pulled','Compared per-transaction rates on a $6 sale',
+ 'Opened r/icecream “what are you all using?” — 87 comments','Read toasttab.com starter kit terms',
+ 'Flagged: Toast hardware is financed by a 3-year commitment','Searched “clover early termination fee reseller”',
+ 'Read shopify.com POS Lite vs Pro','Checked whether Square Reader works with an Android tablet',
+ 'Dropped 2 results — affiliate pages with no primary source'];
+let rsP=62, rsTimer=null;
+function renderLog(n){
+  $('#rsLog').innerHTML=RLOG.slice(0,n).reverse().map((l,i)=>
+    '<div class="row g8" style="padding:5px 0;color:'+(i?'var(--label)':'var(--phos)')+'"><span class="mini lbl-d" style="width:52px;flex:0 0 auto">'+
+    pad(Math.floor((n-i)*24/60))+':'+pad(((n-i)*24)%60)+'</span><span style="font-size:11.5px">'+l+'</span></div>').join('');
+}
+function renderResearch(){
+  setNum($('#rsPct'),pad(rsP)); $('#rsBar').style.transform='scaleX('+(rsP/100)+')';
+  $('#jbBar').style.transform='scaleX('+(rsP/100)+')'; setNum($('#jbPct'),pad(rsP));
+  $('#idleJobPct').textContent=rsP;
+  setNum($('#rsSrc'),pad(Math.min(18,Math.round(rsP/100*18))));
+  setNum($('#rsEl'),'4:'+pad(Math.min(59,Math.round(rsP*.5))));
+  renderLog(clamp(Math.round(rsP/100*RLOG.length),1,RLOG.length));
+}
+ENTER[9]=()=>{ renderResearch(); clearInterval(rsTimer);
+  rsTimer=setInterval(()=>{ if(rsP<98){rsP+=1;renderResearch();} },RM?400:900); };
+EXIT[9]=()=>clearInterval(rsTimer);
+$('#rsFinish').addEventListener('click',()=>{ rsP=100; renderResearch(); toast('Research finished · 14 sources'); go(10); });
+$('#rsStop').addEventListener('click',()=>{ clearInterval(rsTimer); toast('Job stopped. 14 sources kept.','cau'); });
+$('#jbOpen').addEventListener('click',()=>{ $('#resTitle').textContent='Spaced repetition'; curTab='All'; renderTabs(); renderList(); go(10); });
+ENTER[28]=()=>renderResearch();
+
+/* 12 — follow-up thread */
+const FU=[
+ {k:['reader','hardware','bluetooth','dongle'],p:['sourced','2'],a:'The Square Reader is fifty-nine dollars and takes tap and chip. The Bluetooth drop Carlos keeps hitting was fixed in a June firmware update — it installs from the app.'},
+ {k:['export','spreadsheet','csv','report'],p:['sourced','2'],a:'Square exports item-level sales to CSV from the dashboard and can email you a weekly file on a schedule. Toast puts scheduled reporting on a paid tier.'},
+ {k:['wifi','offline','internet','drop','signal'],p:['sourced','2'],a:'Square queues cards offline for up to twenty-four hours, but you carry the chargeback risk on anything that fails later. Toast needs its hub online to take a payment at all.'},
+ {k:['contract','commitment','term','lock','three year'],p:['sourced','3'],a:'Square has no term at all. Toast wants three years of processing in exchange for the free hardware — leaving early means paying out the remaining hardware value, about thirteen hundred dollars.'},
+ {k:['tip','tips','tipping'],p:['sourced','1'],a:'Yes. Preset percentages show on the customer screen and you can switch tips off per device, so the cart can ask and the catering tablet does not have to.'},
+ {k:['fee','cheapest','lowest','per sale','six','$6'],p:['sourced','2'],a:'On a six dollar sale Square takes thirty point six cents and Toast takes thirty-three and a half. Over four hundred sales a week that is about eleven dollars and sixty cents.'},
+ {k:['recommend','which','best','should','pick'],p:['general',''],a:'Square, for the cart. You stay under eighty a month, there is no term, and you already own the reader. Revisit it the day you have a kitchen that needs tickets.'},
+ {k:['tax','missouri','sales tax'],p:['sourced','1'],a:'Tax is set per location and packaged pints need their own item tax class in Missouri — it is not applied automatically.'}];
+let thread=[
+ {who:'You',t:'Which one has the lowest fee on a six dollar sale?'},
+ {who:'Atlas',t:'Square takes two point six percent plus fifteen cents — thirty point six cents. Toast takes three point zero nine plus fifteen — thirty-three and a half. Across four hundred sales a week, Square saves you about eleven dollars and sixty cents.',p:['sourced','2']},
+ {who:'You',t:'Does Square do tips at a cart?'},
+ {who:'Atlas',t:'Yes. Preset tip percentages appear on the customer screen, and you can turn tips off per device.',p:['sourced','1']}];
+function renderThread(){
+  $('#thread').innerHTML=thread.map(t=>'<div class="turn '+(t.who==='You'?'you':'')+'"><span class="who lbl">'+t.who+
+    '</span><span class="bub"><p>'+t.t+'</p>'+(t.p?'<div style="margin-top:9px">'+provHTML(t.p[0],t.p[1],'',' sm')+'</div>':'')+'</span></div>').join('');
+  const s=$('#thread').parentElement; s.scrollTop=s.scrollHeight;
+}
+$('#suggests').innerHTML=['What does the reader cost?','Can I export sales to a spreadsheet?','What happens if Wi-Fi drops mid-sale?','How long is the Toast contract?']
+  .map(q=>'<button class="key sm" data-q="'+q+'">'+q+'</button>').join('');
+function ask(q){
+  if(!q.trim())return;
+  thread.push({who:'You',t:q});
+  const low=q.toLowerCase();
+  const hit=FU.find(f=>f.k.some(k=>low.includes(k)));
+  thread.push(hit?{who:'Atlas',t:hit.a,p:hit.p}:
+    {who:'Atlas',t:'I did not find that in the fourteen sources I read. I can run another search if you want it properly sourced — I am not going to guess at it.',p:['none','']});
+  renderThread(); $('#threadInput').value='';
+}
+$('#threadSend').addEventListener('click',()=>ask($('#threadInput').value));
+$('#threadInput').addEventListener('keydown',e=>{ if(e.key==='Enter')ask($('#threadInput').value); });
+$('#suggests').addEventListener('click',e=>{const b=e.target.closest('[data-q]');if(b)ask(b.dataset.q);});
+renderThread(); ENTER[12]=renderThread;
+
+/* ═══ 13 WEATHER ════════════════════════════════════════════════════════ */
+(function(){
+  let s='<path d="M0,120 Q450,-46 900,120" fill="none" stroke="#1c4c36" stroke-width="1.5"/>';
+  s+='<line x1="0" y1="120" x2="900" y2="120" stroke="#173226"/>';
+  for(let i=0;i<=12;i++){ const x=i*75; s+='<line x1="'+x+'" y1="114" x2="'+x+'" y2="120" stroke="#1c4c36"/>'; }
+  $('#sunSvg').innerHTML=s;
+})();
+function updateSun(){
+  const d=new Date(), now=d.getHours()*60+d.getMinutes();
+  const t=clamp((now-384)/(1191-384),0,1);
+  const x=2*(1-t)*t*450+t*t*900, y=(1-t)*(1-t)*120+2*(1-t)*t*(-46)+t*t*120;
+  const dot=$('#sunDot'); dot.style.left=(x/900*100)+'%'; dot.style.top=(y/126*100)+'%';
+  dot.style.opacity=(now<384||now>1191)?'.28':'1';
+}
+const HOURS={mon:[['6 AM',74,1],['9 AM',79,1],['12 PM',85,1],['3 PM',88,0],['6 PM',84,0],['9 PM',76,0]],
+             tue:[['6 AM',67,0],['9 AM',74,0],['12 PM',81,0],['3 PM',84,0],['6 PM',79,0],['9 PM',70,0]]};
+Object.keys(HOURS).forEach(k=>{
+  $('[data-hours="'+k+'"]').innerHTML=HOURS[k].map(h=>
+   '<div class="col g6" style="align-items:center;gap:6px"><span class="mini lbl-d">'+h[0]+'</span>'+
+   '<span class="readout" style="font-size:15px">'+h[1]+'&deg;</span>'+
+   '<span style="width:7px;height:7px;border-radius:50%;'+(h[2]
+     ?'background:var(--amber);box-shadow:0 0 7px rgba(255,176,0,.8)'
+     :'background:#0d1a14;border:1px solid #1b3328')+'"></span></div>').join('');
+});
+ENTER[13]=updateSun; setInterval(updateSun,30000); updateSun();
+
+/* ═══ 14 TIMERS ═════════════════════════════════════════════════════════ */
+let timers=[{id:1,n:'Base pasteurize',total:900,left:742,run:true},
+            {id:2,n:'Cone iron',total:150,left:96,run:true},
+            {id:3,n:'Dryer',total:2400,left:1487,run:false}];
+const mmss=s=>pad(Math.floor(Math.max(0,s)/60))+':'+pad(Math.max(0,Math.round(s))%60);
+function renderTimers(){
+  $('#timerRow').innerHTML=timers.map(t=>
+    '<div class="tinst'+(t.left<=0?' exp':'')+'" data-t="'+t.id+'">'+
+    '<div class="row between center"><span class="lbl">'+t.n+'</span>'+
+      '<span class="chip'+(t.left<=0?' a':t.run?' on':'')+'">'+(t.left<=0?'Finished':t.run?'Running':'Paused')+'</span></div>'+
+    '<div class="bez"><svg viewBox="0 0 170 170" width="170" height="170">'+timerTicks()+'</svg>'+
+      '<div class="nd" data-nd="'+t.id+'"><s></s></div>'+
+      '<div class="rd numbox" data-rd="'+t.id+'"></div></div>'+
+    '<div class="row g6"><button class="key sm" data-tm="p'+t.id+'" style="flex:1">'+(t.run?'Pause':'Resume')+'</button>'+
+      '<button class="key sm" data-tm="a'+t.id+'" style="flex:1">+1:00</button>'+
+      '<button class="key sm" data-tm="s'+t.id+'" style="flex:1">&minus;1:00</button>'+
+      '<button class="key sm" data-tm="x'+t.id+'" style="flex:1">Clear</button></div>'+
+    '<div class="mini lbl-d">Set for '+mmss(t.total)+'</div></div>').join('');
+  paintTimers();
+}
+function timerTicks(){ let s='';
+  for(let i=0;i<=54;i++){ const a=(-135+i*5)*Math.PI/180, big=i%9===0;
+    s+='<line x1="'+(85+Math.sin(a)*(big?52:56)).toFixed(1)+'" y1="'+(85-Math.cos(a)*(big?52:56)).toFixed(1)+
+       '" x2="'+(85+Math.sin(a)*62).toFixed(1)+'" y2="'+(85-Math.cos(a)*62).toFixed(1)+
+       '" stroke="'+(big?'#3BFF9E':'#1c4c36')+'" stroke-width="'+(big?1.8:1)+'"/>'; }
+  return s+'<circle cx="85" cy="85" r="64" fill="none" stroke="#173226"/>'+
+    '<circle cx="85" cy="85" r="49" fill="none" stroke="#0f2018"/>';
+}
+function paintTimers(){
+  timers.forEach(t=>{
+    const rd=$('[data-rd="'+t.id+'"]'); if(rd)setNum(rd,mmss(t.left));
+    const nd=$('[data-nd="'+t.id+'"]'); if(nd)nd.style.transform='rotate('+(-135+clamp(t.left/t.total,0,1)*270)+'deg)';
+  });
+  $('#tCount').textContent=timers.filter(t=>t.run&&t.left>0).length;
+}
+let lastT=Date.now();
+setInterval(()=>{
+  const now=Date.now(), dt=(now-lastT)/1000; lastT=now; let changed=false;
+  timers.forEach(t=>{ if(t.run&&t.left>0){ t.left-=dt; changed=true;
+    if(t.left<=0){ t.left=0; t.run=false; SOUNDS.klaxon(); toast(t.n+' is done','warn'); renderTimers(); } } });
+  if(changed&&cur===14)paintTimers();
+},200);
+$('#timerRow').addEventListener('click',e=>{
+  const b=e.target.closest('[data-tm]'); if(!b)return;
+  const op=b.dataset.tm[0], id=+b.dataset.tm.slice(1), t=timers.find(x=>x.id===id); if(!t)return;
+  if(op==='p'){ if(t.left>0)t.run=!t.run; }
+  else if(op==='a'){ t.left+=60; t.total=Math.max(t.total,t.left); if(t.left>0&&!t.run)t.run=true; }
+  else if(op==='s'){ t.left=Math.max(0,t.left-60); }
+  else if(op==='x'){ timers=timers.filter(x=>x.id!==id); toast('Timer cleared'); }
+  renderTimers(); beep('click');
+});
+$('#timerPresets').innerHTML=[['Cone iron',150],['Spin a batch',480],['Base pasteurize',900],['Flashcards',1500],['Laundry',2400]]
+  .map(p=>'<button class="key sm" data-pre="'+p[1]+'|'+p[0]+'" style="min-width:132px">'+p[0]+' · '+mmss(p[1])+'</button>').join('');
+$('#timerPresets').addEventListener('click',e=>{
+  const b=e.target.closest('[data-pre]'); if(!b)return;
+  const [sec,name]=b.dataset.pre.split('|');
+  timers.push({id:Date.now(),n:name,total:+sec,left:+sec,run:true}); renderTimers(); toast(name+' started · '+mmss(+sec));
+});
+$('#tExpDemo').addEventListener('click',()=>{ const t=timers.find(x=>x.left>0); if(t){t.left=3;t.run=true;renderTimers();toast('Watch the first one');} });
+$('#tClearAll').addEventListener('click',()=>{ timers=timers.filter(t=>t.left>0); renderTimers(); toast('Finished timers cleared'); });
+ENTER[14]=renderTimers; renderTimers();
+
+/* ═══ 15/16 ALARMS ══════════════════════════════════════════════════════ */
+const DL=['S','M','T','W','T','F','S'];
+let alarms=[
+ {id:1,h:7,m:10,on:true,label:'Class',days:[1,2,3,4,5],sound:'chime'},
+ {id:2,h:5,m:45,on:true,label:'Market load-in',days:[0,6],sound:'marker'},
+ {id:3,h:22,m:30,on:false,label:'Wind down',days:[0,1,2,3,4,5,6],sound:'drip'}];
+const SOUNDNAMES={chime:['Chime','Two bells, soft attack'],marker:['Marker','Four pulses, like an outer marker'],
+ sweep:['Sweep','A rising saw — hard to sleep through'],klaxon:['Klaxon','Alternating tones, the loud one'],drip:['Drip','One short blip, nothing more']};
+function recurName(d){
+  const s=[...d].sort().join(',');
+  if(s==='1,2,3,4,5')return 'Weekdays'; if(s==='0,6')return 'Sat + Sun';
+  if(s==='0,1,2,3,4,5,6')return 'Daily'; if(!d.length)return 'Once';
+  return d.slice().sort().map(i=>['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][i]).join(' ');
+}
+const h12=h=>(h%12===0?12:h%12), ampm=h=>h<12?'AM':'PM';
+function nextAlarmText(){
+  const on=alarms.filter(a=>a.on); if(!on.length)return 'No alarm armed';
+  const d=new Date(), nowMin=d.getHours()*60+d.getMinutes(), today=d.getDay();
+  let best=null;
+  on.forEach(a=>{ for(let k=0;k<8;k++){ const day=(today+k)%7;
+    if(!a.days.length?k===0:a.days.includes(day)){ const t=k*1440+a.h*60+a.m;
+      if(t>nowMin&&(!best||t<best.t))best={t,a}; } } });
+  if(!best)return 'No alarm armed';
+  const diff=best.t-nowMin;
+  let inTxt;
+  if(diff<60) inTxt=diff+' m';
+  else if(diff<1440) inTxt=Math.floor(diff/60)+' h '+(diff%60)+' m';
+  else inTxt=Math.floor(diff/1440)+' d '+Math.floor((diff%1440)/60)+' h';
+  return 'Next: '+h12(best.a.h)+':'+pad(best.a.m)+' '+ampm(best.a.h)+', in '+inTxt;
+}
+function renderAlarms(){
+  $('#alarmList').innerHTML=alarms.map(a=>
+    '<div class="arow'+(a.on?'':' off')+'" data-al="'+a.id+'">'+
+    '<button class="sw" role="switch" aria-checked="'+a.on+'" data-sw="'+a.id+'" aria-label="Arm '+a.label+'">'+
+      '<span class="track"><span class="lever"></span></span><span class="st">'+(a.on?'ARM':'OFF')+'</span></button>'+
+    '<button style="display:flex;align-items:flex-end;gap:9px;text-align:left;min-height:48px" data-open="'+a.id+'">'+
+      '<span class="at numbox">'+numHTML(h12(a.h)+':'+pad(a.m))+'</span><span class="ampm">'+ampm(a.h)+'</span></button>'+
+    '<button class="col g6 grow" style="text-align:left;align-items:flex-start;min-height:48px" data-open="'+a.id+'">'+
+      '<span class="readout" style="font-size:14px">'+a.label+'</span>'+
+      '<span class="row g6"><span class="chip'+(a.on?' on':'')+'">'+recurName(a.days)+'</span>'+
+      '<span class="chip">'+SOUNDNAMES[a.sound][0]+'</span></span></button>'+
+    '<button class="key sm" data-open="'+a.id+'" style="min-width:104px">Edit</button></div>').join('');
+  $('#alarmSub').textContent=nextAlarmText();
+  const na=alarms.filter(a=>a.on)[0];
+  $('#idleAlarm').textContent=na?h12(na.h)+':'+pad(na.m)+' '+ampm(na.h):'None armed';
+  $('#idleAlarmSub').textContent=na?recurName(na.days)+' · '+na.label:'Tap to add one';
+}
+$('#alarmList').addEventListener('click',e=>{
+  const sw=e.target.closest('[data-sw]');
+  if(sw){ const a=alarms.find(x=>x.id===+sw.dataset.sw); a.on=!a.on; renderAlarms(); beep('click');
+    toast(a.label+(a.on?' armed':' disarmed'),a.on?'':'cau'); return; }
+  const op=e.target.closest('[data-open]'); if(op){ editAlarm(+op.dataset.open); }
+});
+$('#alarmAdd').addEventListener('click',()=>{
+  alarms.push({id:Date.now(),h:8,m:0,on:true,label:'New alarm',days:[1,2,3,4,5],sound:'chime'});
+  renderAlarms(); editAlarm(alarms[alarms.length-1].id);
+});
+ENTER[15]=renderAlarms; renderAlarms();
+
+let aeId=1;
+function ae(){ return alarms.find(a=>a.id===aeId)||alarms[0]; }
+function renderAE(){
+  const a=ae(); if(!a)return;
+  setNum($('#aeH'),pad(h12(a.h))); setNum($('#aeM'),pad(a.m));
+  $('#aeAP').textContent=ampm(a.h); $('#aeName').value=a.label;
+  $('#aeLabel').textContent=a.label+' · '+recurName(a.days);
+  $('#aeDays').innerHTML=DL.map((d,i)=>'<button class="d'+(a.days.includes(i)?' on':'')+'" data-day="'+i+'" aria-pressed="'+a.days.includes(i)+'">'+d+'</button>').join('');
+  $('#aeRecur').innerHTML=[['Weekdays',[1,2,3,4,5]],['Sat + Sun',[0,6]],['Daily',[0,1,2,3,4,5,6]],['Once',[]]]
+    .map(r=>'<button class="chip'+(recurName(a.days)===r[0]?' on':'')+'" data-rc="'+r[1].join('')+'">'+r[0]+'</button>').join('');
+  $('#aeSounds').innerHTML=Object.keys(SOUNDNAMES).map(k=>
+    '<button class="srow'+(a.sound===k?' sel':'')+'" data-snd="'+k+'"><span class="nm" style="width:88px;flex:0 0 auto">'+
+    SOUNDNAMES[k][0]+'</span><span class="ds grow">'+SOUNDNAMES[k][1]+'</span>'+
+    '<span class="key sm" style="min-width:84px;height:48px;min-height:48px;pointer-events:none">Play</span></button>').join('');
+}
+function editAlarm(id){ aeId=id; renderAE(); go(16); }
+ENTER[16]=renderAE;
+$('#sc16').addEventListener('click',e=>{
+  const a=ae(); if(!a)return;
+  const sp=e.target.closest('[data-ae]');
+  if(sp){ const k=sp.dataset.ae;
+    if(k==='h+')a.h=(a.h+1)%24; if(k==='h-')a.h=(a.h+23)%24;
+    if(k==='m+')a.m=(a.m+5)%60; if(k==='m-')a.m=(a.m+55)%60;
+    renderAE(); beep('click'); return; }
+  const d=e.target.closest('[data-day]');
+  if(d){ const i=+d.dataset.day; a.days.includes(i)?a.days.splice(a.days.indexOf(i),1):a.days.push(i); renderAE(); beep('click'); return; }
+  const rc=e.target.closest('[data-rc]');
+  if(rc){ a.days=rc.dataset.rc.split('').map(Number); renderAE(); beep('click'); return; }
+  const sn=e.target.closest('[data-snd]');
+  if(sn){ a.sound=sn.dataset.snd; renderAE(); (SOUNDS[a.sound]||SOUNDS.chime)(); return; }
+});
+$('#aeAP').addEventListener('click',()=>{ const a=ae(); a.h=(a.h+12)%24; renderAE(); });
+$('#aeName').addEventListener('input',e=>{ ae().label=e.target.value; $('#aeLabel').textContent=e.target.value+' · '+recurName(ae().days); });
+$('#aeSave').addEventListener('click',()=>{ renderAlarms(); toast('Alarm saved · '+nextAlarmText().replace('Next: ','')); go(15); });
+$('#aeDelete').addEventListener('click',()=>{ alarms=alarms.filter(x=>x.id!==aeId); renderAlarms(); toast('Alarm deleted','cau'); go(15); });
+
+/* volume knob */
+(function(){ let s='';
+  for(let i=0;i<=20;i++){ const a=(-135+i*13.5)*Math.PI/180, big=i%5===0;
+    s+='<line x1="'+(52+Math.sin(a)*(big?40:43)).toFixed(1)+'" y1="'+(52-Math.cos(a)*(big?40:43)).toFixed(1)+
+      '" x2="'+(52+Math.sin(a)*48).toFixed(1)+'" y2="'+(52-Math.cos(a)*48).toFixed(1)+
+      '" stroke="'+(big?'#3BFF9E':'#1c4c36')+'" stroke-width="'+(big?1.6:1)+'"/>'; }
+  $('#knobRing').innerHTML=s;
+})();
+function renderVol(){
+  $('#volDial').style.transform='rotate('+(-135+volume/100*270)+'deg)';
+  setNum($('#volNum'),pad(volume)); $('#volKnob').setAttribute('aria-valuenow',volume);
+}
+function setVol(v){ volume=clamp(Math.round(v),0,100); renderVol(); }
+const knob=$('#volKnob'); let knobDrag=false;
+knob.addEventListener('pointerdown',e=>{knobDrag=true;knob.setPointerCapture(e.pointerId);knobMove(e);});
+knob.addEventListener('pointermove',e=>{if(knobDrag)knobMove(e);});
+knob.addEventListener('pointerup',()=>{knobDrag=false;});
+knob.addEventListener('pointercancel',()=>{knobDrag=false;});
+function knobMove(e){
+  const r=knob.getBoundingClientRect();
+  let a=Math.atan2(e.clientX-(r.left+r.width/2),-(e.clientY-(r.top+r.height/2)))*180/Math.PI;
+  setVol(clamp((a+135)/270*100,0,100));
+}
+knob.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'||e.key==='ArrowUp'){setVol(volume+5);e.preventDefault();}
+  if(e.key==='ArrowLeft'||e.key==='ArrowDown'){setVol(volume-5);e.preventDefault();}
+});
+$('#volUp').addEventListener('click',()=>setVol(volume+5));
+$('#volDown').addEventListener('click',()=>setVol(volume-5));
+$('#volTest').addEventListener('click',()=>(SOUNDS[ae()?ae().sound:'chime']||SOUNDS.chime)());
+renderVol();
+
+/* ═══ 17 AGENDA ═════════════════════════════════════════════════════════ */
+const PXMIN=0.78, T0=360, T1=1380;
+const AG=[
+ {s:450,d:90,n:'Creamery — base prep',m:'Kitchen · 3 gal vanilla bean',k:''},
+ {s:540,d:150,n:'Delmar market — load-in',m:'Cart, canopy, two coolers',k:''},
+ {s:750,d:30,n:'Call Mom',m:'She is in Kansas City until Tuesday',k:'wht'},
+ {s:900,d:60,n:'Bio 2970 flashcards',m:'40 cards due · spaced repetition',k:''},
+ {s:1080,d:90,n:'Lacrosse — captains’ practice',m:'Francis Field',k:'amb'},
+ {s:1260,d:60,n:'Start Chem 261 pre-lab 6',m:'Due Wednesday 11:59 PM',k:'amb'}];
+const fmt12=mn=>{const h=Math.floor(mn/60),m=mn%60;return h12(h)+':'+pad(m)+' '+ampm(h);};
+(function(){
+  const inner=$('#dayTapeInner'); let s=''; inner.style.height=((T1-T0)*PXMIN+30)+'px';
+  for(let t=T0;t<=T1;t+=60){ const y=(t-T0)*PXMIN, h=Math.floor(t/60);
+    s+='<div class="hr" style="top:'+y+'px"></div><div class="hrl" style="top:'+y+'px">'+h12(h)+' '+ampm(h)+'</div>'; }
+  AG.forEach((e,i)=>{ s+='<button class="evt '+e.k+'" data-ev="'+i+'" style="top:'+((e.s-T0)*PXMIN)+'px;height:'+Math.max(48,e.d*PXMIN)+'px">'+
+    '<h4>'+e.n+'</h4><div class="m">'+fmt12(e.s)+' · '+e.m+'</div></button>'; });
+  s+='<div class="now" id="nowBug"><b>Now</b><s></s></div>';
+  inner.innerHTML=s;
+})();
+function updateAgendaNow(){
+  const d=new Date(), now=d.getHours()*60+d.getMinutes(), bug=$('#nowBug');
+  if(!bug)return;
+  bug.style.top=((clamp(now,T0,T1)-T0)*PXMIN)+'px';
+  bug.querySelector('b').textContent=fmt12(now);
+  $$('#dayTapeInner .evt').forEach((el,i)=>el.classList.toggle('past',AG[i].s+AG[i].d<now));
+  const cu=AG.find(e=>now>=e.s&&now<e.s+e.d), nx=AG.find(e=>e.s>now);
+  const agn=$('#agNow'); if(agn)agn.textContent=cu?cu.n:'Nothing scheduled';
+  if(nx){ $('#agNext').textContent=nx.n; $('#agNextT').textContent=fmt12(nx.s)+' · '+nx.m; }
+  else { $('#agNext').textContent='Nothing left today'; $('#agNextT').textContent='Next is Chem 261 lab, Thursday 1:00 PM'; }
+}
+$('#dayTapeInner').addEventListener('click',e=>{ if(e.target.closest('[data-ev]')) go(18); });
+ENTER[17]=()=>{ updateAgendaNow(); const t=$('#dayTape');
+  t.scrollTop=clamp(((new Date().getHours()*60+new Date().getMinutes())-T0)*PXMIN-160,0,9999); };
+
+/* ═══ 18 EVENT EDITOR ═══════════════════════════════════════════════════ */
+const EV={dateI:5,start:960,dur:90,repeat:'Once',alert:'10 min before',cal:'Creamery'};
+const EVDATES=['Sun 16 Aug','Mon 17 Aug','Tue 18 Aug','Wed 19 Aug','Thu 20 Aug','Fri 21 Aug','Sat 22 Aug'];
+function renderEV(){
+  $('#evDate').textContent=EVDATES[EV.dateI];
+  setNum($('#evStart'),fmt12(EV.start).replace(/ (AM|PM)/,''));
+  $('#evStartAP').textContent=ampm(Math.floor(EV.start/60));
+  $('#evDur').textContent=(EV.dur>=60?Math.floor(EV.dur/60)+' h ':'')+(EV.dur%60)+' m';
+  $('#evEnd').textContent=fmt12((EV.start+EV.dur)%1440);
+  $('#evCal').innerHTML=['Personal','Creamery','Classes'].map(c=>'<button class="chip'+(EV.cal===c?' on':'')+'" data-cal="'+c+'">'+c+'</button>').join('');
+  $('#evRepeat').innerHTML=['Once','Every week','Every weekday','Monthly'].map(r=>'<button class="chip'+(EV.repeat===r?' on':'')+'" data-rp="'+r+'">'+r+'</button>').join('');
+  $('#evAlert').innerHTML=['At the time','10 min before','30 min before','1 h before'].map(r=>'<button class="chip'+(EV.alert===r?' on':'')+'" data-al2="'+r+'">'+r+'</button>').join('');
+  $('#evPeople').innerHTML='<span class="chip on">Carlos Ferreira ×</span><span class="chip">Add someone +</span>';
+}
+$('#sc18').addEventListener('click',e=>{
+  const b=e.target.closest('[data-ev]');
+  if(b){ const k=b.dataset.ev;
+    if(k==='d+')EV.dateI=(EV.dateI+1)%7; if(k==='d-')EV.dateI=(EV.dateI+6)%7;
+    if(k==='t+')EV.start=(EV.start+15)%1440; if(k==='t-')EV.start=(EV.start+1425)%1440;
+    if(k==='u+')EV.dur=Math.min(480,EV.dur+15); if(k==='u-')EV.dur=Math.max(15,EV.dur-15);
+    renderEV(); beep('click'); return; }
+  const c=e.target.closest('[data-cal]'); if(c){EV.cal=c.dataset.cal;renderEV();return;}
+  const r=e.target.closest('[data-rp]'); if(r){EV.repeat=r.dataset.rp;renderEV();return;}
+  const a=e.target.closest('[data-al2]'); if(a){EV.alert=a.dataset.al2;renderEV();return;}
+});
+ENTER[18]=renderEV; renderEV();
+
+/* ═══ GUARDED SWITCHES ══════════════════════════════════════════════════ */
+const GUARD_DONE={
+  guardCal:()=>{ $('#cfPending').style.display='none'; $('#cfDone').style.display='flex'; SOUNDS.drip(); toast('Event added to your creamery calendar'); },
+  guardTx:()=>{ $('#txPending').style.display='none'; $('#txDone').style.display='flex'; SOUNDS.drip(); toast('Text sent to Carlos Ferreira'); },
+  guardEm:()=>{ $('#emcPending').style.display='none'; $('#emcDone').style.display='flex'; SOUNDS.drip(); toast('Email sent with 1 attachment'); },
+  guardGal:()=>{ const p=PHOTOS[galSel]; PHOTOS.splice(galSel,1); galSel=Math.min(galSel,PHOTOS.length-1);
+    renderGallery(); resetGuard('guardGal'); toast('Forgotten — '+p.f+' is gone','cau'); },
+  guardMem:()=>{ const m=MEM[memSel]; MEM.splice(memSel,1); memSel=Math.min(memSel,MEM.length-1);
+    renderMem(); resetGuard('guardMem'); toast('Forgotten. Atlas will not bring that up again.','cau'); }
+};
+function resetGuard(id){ const g=$('#'+id); if(g)g.dataset.phase='closed'; }
+document.addEventListener('click',e=>{
+  const lift=e.target.closest('[data-guard-lift]');
+  if(lift){ const g=lift.closest('.guard'); g.dataset.phase='open'; beep('click'); return; }
+  const thr=e.target.closest('[data-guard-throw]');
+  if(thr){ const g=thr.closest('.guard'); if(g.dataset.phase!=='open')return;
+    g.dataset.phase='done'; setTimeout(()=>{ const f=GUARD_DONE[g.id]; if(f)f(); },RM?10:440); }
+});
+ENTER[19]=()=>{ resetGuard('guardCal'); $('#cfPending').style.display=''; $('#cfDone').style.display='none'; };
+ENTER[21]=()=>{ resetGuard('guardTx'); $('#txPending').style.display=''; $('#txDone').style.display='none'; };
+ENTER[24]=()=>{ resetGuard('guardEm'); $('#emcPending').style.display=''; $('#emcDone').style.display='none'; };
+$('#cfReset').addEventListener('click',()=>ENTER[19]());
+$('#txReset').addEventListener('click',()=>ENTER[21]());
+$('#emcReset').addEventListener('click',()=>ENTER[24]());
+
+/* ═══ 20 CONTACTS ═══════════════════════════════════════════════════════ */
+const CANDS=[
+ {i:'CF',n:'Carlos Ferreira',r:'Campus Creamery — co-op',d:['Texted 2 h ago','214 messages','In your favourites'],c:.91,
+  last:'“freezer’s at −18 and holding”',lastw:'2 h ago',
+  note:'He is the Carlos in every creamery thread this month.'},
+ {i:'CM',n:'Carlos Mendez',r:'Chem 261 — lab partner',d:['Texted 3 weeks ago','9 messages','Added in January'],c:.44,
+  last:'“are you going to office hours tuesday”',lastw:'3 weeks ago',
+  note:'Atlas knows he is your lab partner, but you rarely text him.'},
+ {i:'CR',n:'Carlos Ruiz',r:'Lacrosse — group chat only',d:['Never texted directly','Group chat only','From the roster'],c:.12,
+  last:'No direct messages, ever',lastw:'—',
+  note:'You have never sent him a message on his own.'}];
+$('#candRow').innerHTML=CANDS.map((c,i)=>
+ '<button class="cand" data-cand="'+i+'"><span class="row g14 center"><span class="av">'+c.i+'</span>'+
+ '<span class="col g6 grow" style="align-items:flex-start"><span class="nm">'+c.n+'</span><span class="mini">'+c.r+'</span></span></span>'+
+ '<span class="row between center"><span class="lbl">Match</span><span class="readout glow" style="font-size:19px">'+c.c.toFixed(2)+'</span></span>'+
+ '<span class="pbar"><i style="transform:scaleX('+c.c+')"></i></span>'+
+ '<span class="col g6">'+c.d.map(d=>'<span class="mini">· '+d+'</span>').join('')+'</span>'+
+ '<span class="panel noscrew" style="padding:10px 11px;display:block"><span class="lbl">Last message</span>'+
+ '<span class="readout" style="display:block;margin-top:5px;font-size:12px;line-height:1.5">'+c.last+'</span>'+
+ '<span class="mini lbl-d" style="display:block;margin-top:5px">'+c.lastw+'</span></span>'+
+ '<span class="hint" style="margin-top:auto;font-size:11px;display:block">'+c.note+'</span>'+
+ '<span class="key sm pri" style="pointer-events:none;width:100%">Text '+c.n+'</span></button>').join('');
+$('#candRow').addEventListener('click',e=>{
+  const b=e.target.closest('[data-cand]'); if(!b)return;
+  const c=CANDS[+b.dataset.cand];
+  $('#txTo').textContent='To '+c.n+' · +1 314 555 01'+(48+ +b.dataset.cand*7);
+  toast('Atlas will remember you meant '+c.n); go(21);
+});
+
+/* ═══ 22/23 MAIL ════════════════════════════════════════════════════════ */
+const MAIL=[
+ {u:true,f:'Carlos Ferreira',a:'carlos@campuscreamery.co',s:'Sig Ep order — 3 gal?',
+  p:'James — Sig Ep bumped their headcount to 140. Three gallons is not going to cut it…',t:'14:21',av:'CF',
+  b:['James — Sig Ep bumped their headcount to 140. Three gallons of vanilla bean is not going to cut it. Can we do four, or two vanilla and two of the brown butter?',
+     'Also I cannot get to the Danforth dock before 5 on Friday. If you need it there at 4, that is on you.',
+     'Freezer is at −18 and holding. The card reader is still doing the thing where it drops off Bluetooth halfway through a market.'],
+  sum:'Carlos wants to raise the Sig Ep order from three gallons to four, or split it two vanilla and two brown butter. He cannot reach the Danforth dock before 5 PM Friday. The card reader is still losing its Bluetooth pairing.'},
+ {u:true,f:'WashU Chem 261',a:'chem261@wustl.edu',s:'Pre-lab 6 posted',p:'Pre-lab 6 is on Canvas. Due 11:59 PM Wednesday…',t:'13:02',av:'C2',
+  b:['Pre-lab 6 is on Canvas. Due 11:59 PM Wednesday, before Thursday’s session in Louderman 458.',
+     'Bring your own goggles. There are no loaners this term.'],
+  sum:'Pre-lab 6 is on Canvas, due Wednesday at 11:59 PM. Bring your own goggles — there are no loaners.'},
+ {u:true,f:'Mom',a:'dianne.r@gmail.com',s:'call me when you can',p:'Nothing wrong. Just want to hear how the market went…',t:'11:40',av:'M',
+  b:['Nothing wrong. Just want to hear how the market went on Saturday.','I am in Kansas City until Tuesday. Call any evening.'],
+  sum:'Nothing is wrong. She wants to hear about Saturday’s market and is in Kansas City until Tuesday.'},
+ {u:true,f:'Square',a:'no-reply@squareup.com',s:'Deposit sent: $412.60',p:'Your deposit for Sat 15 Aug is on its way…',t:'09:14',av:'SQ',
+  b:['Your deposit for Saturday 15 August is on its way to your account ending 4417.','Gross sales $431.90 · fees $19.30 · net $412.60.'],
+  sum:'Saturday’s deposit of $412.60 is on the way. Gross was $431.90 with $19.30 in fees.'},
+ {u:false,f:'Lacrosse Captains',a:'captains@wulax.org',s:'Saturday 7am lift',p:'Weight room, 7 sharp. Bring your own chalk…',t:'Yesterday',av:'LX',
+  b:['Weight room, 7 sharp. Bring your own chalk.','If you are travelling, message the group by Thursday.'],
+  sum:'Saturday lift at 7 AM in the weight room. Message the group by Thursday if you are travelling.'},
+ {u:false,f:'WashU Housing',a:'housing@wustl.edu',s:'Move-in packet',p:'Your Danforth Hall packet is attached…',t:'Fri',av:'WU',
+  b:['Your Danforth Hall packet is attached. Key pickup is at the front desk from 8 AM.',
+     'Kitchen use for a registered business needs the form on page 4, signed by your RA.'],
+  sum:'Key pickup at the Danforth front desk from 8 AM. Business kitchen use needs the form on page 4.'},
+ {u:false,f:'Toast Sales',a:'sales@toasttab.com',s:'Re: your demo request',p:'Following up on the demo — do you have 20 minutes Thursday…',t:'Thu',av:'TS',
+  b:['Following up on the demo — do you have twenty minutes Thursday?','Happy to price the Starter Kit for a single-cart operation.'],
+  sum:'A sales rep is asking for twenty minutes Thursday to price the Starter Kit.'}];
+let mailI=0;
+function renderInbox(){
+  $('#inboxList').innerHTML=MAIL.map((m,i)=>
+   '<button class="mrow'+(m.u?' unread':'')+'" data-mail="'+i+'"><i class="bulb"></i>'+
+   '<span class="who">'+m.f+'</span><span class="sb"><h4>'+m.s+'</h4><p>'+m.p+'</p></span><span class="tm">'+m.t+'</span></button>').join('');
+  const n=MAIL.filter(m=>m.u).length;
+  $('#unreadN').textContent=n; $('#unreadN2').textContent=n;
+}
+$('#inboxList').addEventListener('click',e=>{
+  const b=e.target.closest('[data-mail]'); if(!b)return;
+  mailI=+b.dataset.mail; MAIL[mailI].u=false; renderInbox(); openMail();
+});
+$('#markAll').addEventListener('click',()=>{ MAIL.forEach(m=>m.u=false); renderInbox(); toast('All marked as read'); });
+function openMail(){
+  const m=MAIL[mailI];
+  $('#emSubj').textContent=m.s; $('#emWhen').textContent='Today '+m.t;
+  $('#emFrom').textContent=m.f; $('#emAddr').textContent=m.a; $('#emAv').textContent=m.av;
+  $('#emBody').innerHTML=m.b.map(p=>'<p>'+p+'</p>').join('');
+  $('#emSummary').style.display='none';
+  go(23);
+}
+$('#emSummarize').addEventListener('click',()=>{
+  const m=MAIL[mailI], s=$('#emSummary');
+  s.innerHTML='<div class="qcard" style="border-color:#2a6647"><div class="row between center">'+
+    '<span class="lbl">Summary</span>'+provHTML('sourced','1','This message only',' sm')+'</div>'+
+    '<p class="readout" style="margin-top:9px;font-size:14px;line-height:1.6">'+m.sum+'</p></div>';
+  s.style.display='block';
+});
+ENTER[22]=renderInbox; ENTER[23]=()=>{ if(!$('#emBody').innerHTML) openMail(); }; renderInbox();
+$('#attachThumb').innerHTML=photoSVG(0,62,46);
+
+/* ═══ 25 CAMERA ═════════════════════════════════════════════════════════ */
+let recT=null, recS=4;
+ENTER[25]=()=>{ clearInterval(recT); recS=4; setNum($('#recTime'),'00:0'+recS);
+  recT=setInterval(()=>{ recS++; setNum($('#recTime'),'00:'+pad(recS)); },1000); };
+EXIT[25]=()=>clearInterval(recT);
+$('#camShot').addEventListener('click',()=>{
+  const f=$('#camFlash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go');
+  SOUNDS.drip();
+  PHOTOS.unshift({f:'IMG-'+(4820+PHOTOS.length)+'.JPG',t:'Just now',cap:'Front frame, taken from the deck.',
+    place:'Danforth Hall 412',kind:5});
+  renderGallery(); toast('Photo saved to the gallery');
+  setTimeout(()=>go(26),600);
+});
+$('#camOff').addEventListener('click',()=>{ toast('Camera off. The lamp on the frame is dark.','cau'); go(2); });
+
+/* ═══ 26 GALLERY ════════════════════════════════════════════════════════ */
+function photoSVG(kind,w,h){
+  const S=[
+    '<rect width="120" height="90" fill="#020604"/><rect x="10" y="8" width="100" height="74" fill="none" stroke="#1f6b48"/>'+
+      '<line x1="18" y1="24" x2="70" y2="24" stroke="#3BFF9E" stroke-width="2"/><line x1="18" y1="36" x2="86" y2="36" stroke="#2b9a68"/>'+
+      '<line x1="18" y1="46" x2="62" y2="46" stroke="#2b9a68"/><line x1="18" y1="56" x2="78" y2="56" stroke="#2b9a68"/>'+
+      '<ellipse cx="52" cy="46" rx="40" ry="9" fill="none" stroke="#FFB000" stroke-width="1.5"/>',
+    '<rect width="120" height="90" fill="#020604"/><circle cx="60" cy="46" r="26" fill="none" stroke="#3BFF9E" stroke-width="2"/>'+
+      '<circle cx="60" cy="46" r="17" fill="none" stroke="#1f6b48"/><rect x="52" y="8" width="16" height="16" fill="none" stroke="#2b9a68"/>'+
+      '<line x1="86" y1="46" x2="112" y2="34" stroke="#2b9a68" stroke-width="3"/>',
+    '<rect width="120" height="90" fill="#020604"/><path d="M46 20 L46 40 L34 74 L74 74 L62 40 L62 20 Z" fill="none" stroke="#3BFF9E" stroke-width="2"/>'+
+      '<line x1="42" y1="20" x2="66" y2="20" stroke="#3BFF9E" stroke-width="2"/><path d="M37 62 L71 62" stroke="#1f6b48" stroke-width="6"/>'+
+      '<line x1="90" y1="16" x2="90" y2="78" stroke="#2b9a68" stroke-width="2"/><line x1="80" y1="40" x2="100" y2="40" stroke="#2b9a68"/>',
+    '<rect width="120" height="90" fill="#020604"/><path d="M18 30 L102 30 L96 16 L24 16 Z" fill="none" stroke="#2b9a68"/>'+
+      '<rect x="26" y="38" width="68" height="26" fill="none" stroke="#3BFF9E" stroke-width="2"/>'+
+      '<circle cx="38" cy="72" r="7" fill="none" stroke="#3BFF9E" stroke-width="2"/><circle cx="82" cy="72" r="7" fill="none" stroke="#3BFF9E" stroke-width="2"/>'+
+      '<line x1="26" y1="50" x2="94" y2="50" stroke="#1f6b48"/>',
+    '<rect width="120" height="90" fill="#020604"/><rect x="8" y="10" width="104" height="70" fill="none" stroke="#1f6b48"/>'+
+      '<path d="M18 30 Q30 20 40 32 T62 30" fill="none" stroke="#2b9a68"/><path d="M18 46 Q34 38 48 48" fill="none" stroke="#2b9a68"/>'+
+      '<rect x="62" y="44" width="38" height="24" fill="none" stroke="#FFB000" stroke-width="1.5"/>'+
+      '<line x1="68" y1="56" x2="94" y2="56" stroke="#FFB000"/>',
+    '<rect width="120" height="90" fill="#020604"/><circle cx="60" cy="45" r="30" fill="none" stroke="#3BFF9E" stroke-width="2"/>'+
+      '<circle cx="60" cy="45" r="3" fill="#3BFF9E"/><line x1="60" y1="45" x2="40" y2="30" stroke="#FFB000" stroke-width="2"/>'+
+      '<line x1="60" y1="15" x2="60" y2="21" stroke="#2b9a68"/><line x1="90" y1="45" x2="84" y2="45" stroke="#2b9a68"/>'+
+      '<line x1="60" y1="75" x2="60" y2="69" stroke="#2b9a68"/><line x1="30" y1="45" x2="36" y2="45" stroke="#2b9a68"/>'];
+  return '<svg viewBox="0 0 120 90"'+(w?' width="'+w+'" height="'+h+'"':'')+' preserveAspectRatio="xMidYMid slice">'+S[kind%S.length]+'</svg>';
+}
+const PHOTOS=[
+ {f:'FLAVOR-BOARD-AUG16.JPG',t:'Today 3:14 PM',cap:'Six flavors chalked on the board. Brown butter is circled.',place:'Creamery kitchen',kind:0,size:'2.4 MB'},
+ {f:'CONE-IRON-AUG16.JPG',t:'Today 9:02 AM',cap:'The iron, mid-batch. Plate reads 385°F.',place:'Creamery kitchen',kind:1,size:'1.9 MB'},
+ {f:'BENCH-AUG13.JPG',t:'Thu 13 Aug 1:40 PM',cap:'Your Chem 261 setup, before the reflux.',place:'Louderman 458',kind:2,size:'2.1 MB'},
+ {f:'MARKET-CART-AUG15.JPG',t:'Sat 15 Aug 8:12 AM',cap:'Cart set up before the crowd came.',place:'Delmar farmers market',kind:3,size:'2.8 MB'},
+ {f:'WHITEBOARD-AUG14.JPG',t:'Fri 14 Aug 4:55 PM',cap:'Cost per scoop math. It came out at $1.12.',place:'Danforth Hall 412',kind:4,size:'1.6 MB'},
+ {f:'FREEZER-GAUGE-AUG16.JPG',t:'Today 7:41 AM',cap:'Reads −18 °C. Holding since Thursday.',place:'Creamery kitchen',kind:5,size:'1.2 MB'}];
+let galSel=0;
+function renderGallery(){
+  $('#galCells').innerHTML=PHOTOS.map((p,i)=>
+   '<button class="gcell'+(i===galSel?' sel':'')+'" data-ph="'+i+'">'+photoSVG(p.kind)+'<span class="cap">'+p.t+'</span></button>').join('');
+  const p=PHOTOS[galSel];
+  $('#galSub').textContent=PHOTOS.length+' photo'+(PHOTOS.length===1?'':'s')+' on this device';
+  $('#galDetail').innerHTML=p?
+   '<div style="border:1px solid var(--rule);border-radius:2px;overflow:hidden">'+photoSVG(p.kind)+'</div>'+
+   '<div class="readout" style="font-size:14px;line-height:1.5;margin-top:4px">'+p.cap+'</div>'+
+   '<hr class="rule"><div class="col g6"><span class="lbl">File</span><span class="mini">'+p.f+' · '+(p.size||'2.0 MB')+'</span>'+
+   '<span class="lbl">Taken</span><span class="mini">'+p.t+' · '+p.place+'</span>'+
+   '<span class="lbl">Leaves the device</span><span class="mini">Only when you attach it to something</span></div>'
+   :'<div class="hint">No photos left. Open the camera to take one.</div>';
+}
+$('#galCells').addEventListener('click',e=>{const b=e.target.closest('[data-ph]');if(!b)return;galSel=+b.dataset.ph;renderGallery();resetGuard('guardGal');});
+$('#galKeep').addEventListener('click',()=>toast('Kept. It stays on the Pi.'));
+ENTER[26]=()=>{renderGallery();resetGuard('guardGal');}; renderGallery();
+
+/* ═══ 27 MEMORY ═════════════════════════════════════════════════════════ */
+const MEM=[
+ {f:'Your Chem 261 lab partner is Carlos Mendez.',s:'You said this',a:'Recorded 3 weeks ago',c:'High',p:['recalled','3w']},
+ {f:'Campus Creamery sells at the Delmar farmers market on Saturday mornings.',s:'From your calendar',a:'Recorded 2 months ago',c:'High',p:['recalled','2mo']},
+ {f:'You keep the base cooler at 4 °C.',s:'You said this',a:'Recorded 9 days ago',c:'High',p:['recalled','9d']},
+ {f:'Mom’s birthday is October 2nd.',s:'From your contacts',a:'Recorded 5 months ago',c:'High',p:['recalled','5mo']},
+ {f:'You would rather be texted than called before noon.',s:'You said this',a:'Recorded 6 days ago',c:'Medium',p:['recalled','6d']},
+ {f:'The Sig Ep order is 3 gallons of vanilla bean.',s:'From an email',a:'Recorded 4 days ago',c:'Medium — Carlos may have changed it today',p:['recalled','4d']}];
+let memSel=0;
+function renderMem(){
+  $('#memList').innerHTML=MEM.map((m,i)=>
+   '<button class="mem" data-mem="'+i+'" style="'+(i===memSel?'border-color:#2a6647;background:rgba(59,255,158,.045)':'')+'">'+
+   '<span class="col g6" style="width:126px;flex:0 0 auto;align-items:flex-start"><span class="lbl">'+m.s+'</span>'+
+   '<span class="mini lbl-d">'+m.a+'</span></span>'+
+   '<span class="f"><span class="fact">'+m.f+'</span>'+
+   '<span class="row g6" style="margin-top:9px">'+provHTML(m.p[0],m.p[1],'',' sm')+
+   '<span class="chip">Confidence '+m.c.split(' —')[0]+'</span></span></span></button>').join('');
+  $('#memN').textContent=MEM.length;
+  const m=MEM[memSel];
+  $('#memSel').textContent=m?m.f:'Nothing selected.';
+  $('#memProv').innerHTML=m?provHTML(m.p[0],m.p[1],m.a+' · '+m.s)+
+    '<div class="lbl" style="margin-top:11px">Confidence</div><div class="hint" style="margin-top:4px">'+m.c+'</div>':'';
+}
+$('#memList').addEventListener('click',e=>{const b=e.target.closest('[data-mem]');if(!b)return;memSel=+b.dataset.mem;renderMem();resetGuard('guardMem');});
+ENTER[27]=()=>{renderMem();resetGuard('guardMem');}; renderMem();
+
+/* ═══ 28 JOBS ═══════════════════════════════════════════════════════════ */
+$('#awayList').innerHTML=[
+ ['41 min ago','Carlos Ferreira texted about the Sig Ep pickup. He wants four gallons, not three.'],
+ ['2 h ago','Square deposited $412.60 for Saturday’s market.'],
+ ['6 min ago','The point-of-sale research passed ten sources and found a three-year term on Toast.']]
+ .map(a=>'<div class="col g6"><span class="mini lbl-d">'+a[0]+'</span><span class="readout" style="font-size:12.5px;line-height:1.55">'+a[1]+'</span></div>').join('');
+
+/* ═══ 29/30/31 SYSTEM ═══════════════════════════════════════════════════ */
+$('#unmuteKey').addEventListener('click',()=>{ toast('Microphone on. Say “Atlas”.'); go(2); });
+$('#diagList').innerHTML=[
+ ['ok','✓','Wi-Fi','WUSTL-Guest · −52 dBm · connected 11 h ago'],
+ ['ok','✓','Address (DHCP)','10.36.4.118 · lease good for 6 h'],
+ ['bad','✗','Name lookup (DNS)','No reply from 10.36.0.10 after 3 tries'],
+ ['na','—','Model link','Not attempted — there is no name to reach'],
+ ['na','—','Search, mail, weather','Not attempted for the same reason']]
+ .map(d=>'<div class="diag '+d[0]+'"><span class="mk">'+d[1]+'</span><span class="nm">'+d[2]+'</span><span class="dt">'+d[3]+'</span></div>').join('');
+let retryS=24, retryT=null;
+ENTER[30]=()=>{ clearInterval(retryT); retryT=setInterval(()=>{
+  retryS--; if(retryS<0)retryS=24; $('#retryIn').textContent='0:'+pad(retryS); },1000); };
+EXIT[30]=()=>clearInterval(retryT);
+$('#retryKey').addEventListener('click',()=>{ toast('Tried again. DNS still silent.','warn'); retryS=24; });
+
+const HEALTH=[
+ ['live','Speech in','Whisper small.en','Local · 340 ms average'],
+ ['live','Speech out','Piper · voice Amy','Local · 120 ms to first sound'],
+ ['live','Model','Claude API','Key good · 1.1 s median'],
+ ['live','Search','Brave','Key good · 210 ms'],
+ ['live','Calendar','Google','2 calendars · synced 2 min ago'],
+ ['live','Mail','Gmail','7 today · synced 4 min ago'],
+ ['deg','Messages','Twilio','Rate-limited. Texts may take a minute.'],
+ ['live','Camera','CSI-2 module','1080p30 · lamp wired to the frame'],
+ ['live','Weather','NWS LSX','Updated 8 min ago'],
+ ['live','Memory store','Local SQLite','1,284 facts · 41 MB'],
+ ['live','Wake word','openWakeWord','38 heard today · 3 false'],
+ ['live','Network','WUSTL-Guest','−52 dBm · 24 ms to the gateway']];
+$('#healthGrid').innerHTML=HEALTH.map(h=>
+ '<div class="hcell '+h[0]+'"><span class="top"><i class="bulb"></i><span class="nm">'+h[1]+'</span>'+
+ '<span class="st">'+(h[0]==='live'?'Live':h[0]==='deg'?'Degraded':'Down')+'</span></span>'+
+ '<span class="dt"><b style="font-weight:600">'+h[2]+'</b><br>'+h[3]+'</span></div>').join('');
+$('#lampTest').addEventListener('click',()=>{
+  const cells=$$('#healthGrid .hcell'), was=cells.map(c=>c.className);
+  cells.forEach(c=>c.className='hcell live');
+  $$('#glare .lamp').forEach(l=>l.classList.add('on'));
+  toast('Lamp test — every lamp should be lit');
+  setTimeout(()=>{ cells.forEach((c,i)=>c.className=was[i]); go(cur); },1600);
+});
+
+/* ═══ KEYBOARD ══════════════════════════════════════════════════════════ */
+addEventListener('keydown',e=>{
+  if(e.target.matches('input,textarea'))return;
+  if(e.key==='Escape'){ idx(false); return; }
+  if(e.key>='1'&&e.key<='9'){ go(GROUPS[+e.key-1].s[0][0]); return; }
+  if(e.key==='ArrowRight'){ go(cur<31?cur+1:1); e.preventDefault(); }
+  if(e.key==='ArrowLeft'){ go(cur>1?cur-1:31); e.preventDefault(); }
+  if(e.key==='i'||e.key==='I'){ idx(!$('#index').classList.contains('on')); }
+});
+
+/* ═══ START ═════════════════════════════════════════════════════════════ */
+renderResearch(); tickClock();
+const hash=+(location.hash||'').replace('#','');
+if(hash>=1&&hash<=31){ bootAuto=false; go(hash); } else go(1);
+addEventListener('hashchange',()=>{ const h=+location.hash.replace('#',''); if(h>=1&&h<=31)go(h); });
+setTimeout(sizeCanvases,80);
+</script>

@@ -1,0 +1,3214 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280,initial-scale=1">
+<title>Atlas — Mark VII</title>
+<!--
+================================================================================
+ATLAS · MARK VII — holographic combat-cockpit HUD on void
+Design language: reticle grammar. Concentric rings, arc segments, corner
+brackets. Every ring encodes a real quantity; nothing is decorative.
+1280 x 800 landscape. Ground is #000000 everywhere. Self-contained, zero
+external requests. WebAudio synthesis only.
+
+SCREEN MANIFEST — all 31 reachable from the INDEX (bottom-left of the frame;
+also "I" to open, Esc to toggle). In-flow routes listed too. Any screen can
+also be deep-linked as a URL hash, e.g. ...1-stark-hud.html#timers.
+
+  STATES
+  01 boot .......... auto-plays on load · INDEX 01 · "REPLAY BOOT" on Idle
+  02 idle .......... end of boot · INDEX 02 · returns from any "DONE/CLOSE"
+  03 sleep ......... INDEX 03 · Idle > tap "SLEEP" (below the clock)
+  04 wake .......... INDEX 04 · Sleep > tap anywhere · Idle > tap the core ring
+  05 listen ........ INDEX 05 · auto from Wake (1.0s)
+  06 think ......... INDEX 06 · auto from Listening when transcript completes
+  07 speak ......... INDEX 07 · auto from Thinking (1.6s)
+  08 answer ........ INDEX 08 · Speaking > tap "SHOW SOURCES"
+  09 research ...... INDEX 09 · Answer > tap "RESEARCH THIS PROPERLY"
+  10 results ....... INDEX 10 · auto from Research at 100% · tap "OPEN RESULTS"
+  11 article ....... INDEX 11 · Results > tap any article card
+  12 thread ........ INDEX 12 · Results/Article > tap "ASK A FOLLOW-UP"
+  WEATHER
+  13 weather ....... INDEX 13 · Idle > tap the OUTSIDE leader readout
+  TIME
+  14 timers ........ INDEX 14 · Idle > tap the TIMER leader readout
+                     (live countdowns; "START ANOTHER" chips add real timers)
+  15 alarms ........ INDEX 15 · Idle > tap the ALARM leader readout
+  16 alarmedit ..... INDEX 16 · Alarms > tap any alarm row
+  CALENDAR
+  17 agenda ........ INDEX 17 · Idle > tap the NEXT leader readout
+  18 eventedit ..... INDEX 18 · Agenda > tap any event block or "NEW EVENT"
+  19 eventconfirm .. INDEX 19 · Event editor > tap "SAVE EVENT" (read-back)
+  PEOPLE & MAIL
+  20 people ........ INDEX 20 · Speaking > tap "TEXT CARLOS"
+  21 sms ........... INDEX 21 · People > tap any candidate card
+  22 inbox ......... INDEX 22 · INDEX only
+  23 email ......... INDEX 23 · Inbox > tap any message row
+  24 emailsend ..... INDEX 24 · Email > tap "REPLY WITH THE PHOTO"
+  VISION
+  25 camera ........ INDEX 25 · Photos > tap "TAKE A PHOTO"
+  26 photos ........ INDEX 26 · Camera > capture, then tap the thumbnail
+  MIND
+  27 memory ........ INDEX 27 · Speaking > tap a RECALLED provenance badge
+  28 jobs .......... INDEX 28 · Research > tap "RUN IT IN THE BACKGROUND"
+  SYSTEM
+  29 muted ......... INDEX 29 · tap the MIC state in the top rail
+  30 offline ....... INDEX 30 · Health > tap the offline capability
+  31 health ........ INDEX 31 · Offline > tap "CHECK SYSTEM HEALTH"
+================================================================================
+-->
+<style>
+:root{
+  --void:#000;
+  --core:#DCF2FF;              /* hologram core, near-white cyan */
+  --holo:#7FD4FA;              /* primary hologram */
+  --holo-2:#4FB4E8;            /* mid */
+  --deep:#2E9FDF;              /* structural glow */
+  --armed:#FFA02E;             /* live / armed / destructive */
+  --armed-2:#C9761E;
+  --steel:#7B93A3;             /* inert chrome */
+  --steel-2:#3E4E5A;
+  --fill:rgba(46,159,223,.085);
+  --fill-2:rgba(46,159,223,.028);
+  --line:rgba(127,212,250,.22);
+  --line-2:rgba(127,212,250,.11);
+  --gl:0 0 9px rgba(46,159,223,.55);
+  --gl-a:0 0 10px rgba(255,160,46,.5);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;width:100%;background:#000;overflow:hidden}
+body{
+  font-family:'Helvetica Neue',Helvetica,Arial,system-ui,sans-serif;
+  color:var(--holo);font-size:15px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+}
+button,input{font:inherit;color:inherit;background:none;border:0;outline:0}
+::selection{background:rgba(255,160,46,.3)}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-thumb{background:rgba(127,212,250,.3)}
+::-webkit-scrollbar-track{background:rgba(127,212,250,.05)}
+
+/* ── type roles ────────────────────────────────────────────────────────── */
+.cd{font-family:'Arial Narrow','Helvetica Neue','Liberation Sans Narrow','Roboto Condensed','DejaVu Sans Condensed',Arial,sans-serif;
+    font-stretch:75%;text-transform:uppercase;letter-spacing:.15em;font-weight:500}
+.mo{font-family:ui-monospace,'DejaVu Sans Mono','SF Mono',Menlo,Consolas,monospace;letter-spacing:.05em;font-variant-numeric:tabular-nums}
+.pr{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;line-height:1.62;letter-spacing:.005em}
+.gl{text-shadow:var(--gl)}
+.am{color:var(--armed);text-shadow:var(--gl-a)}
+.st{color:var(--steel);text-shadow:none}
+.co{color:var(--core);text-shadow:0 0 12px rgba(120,200,255,.5)}
+
+/* ── stage ─────────────────────────────────────────────────────────────── */
+#fit{position:fixed;inset:0;display:grid;place-items:center;background:#000}
+#hud{width:1280px;height:800px;position:relative;background:#000;overflow:hidden;transform-origin:center center}
+
+/* ── frame chrome ──────────────────────────────────────────────────────── */
+#frame{position:absolute;inset:0;pointer-events:none;z-index:58}
+.cnr{position:absolute;width:26px;height:26px;border:1.5px solid var(--deep);opacity:.85;
+     transition:transform .3s cubic-bezier(.2,.9,.2,1)}
+.cnr.tl{left:9px;top:9px;border-right:0;border-bottom:0}
+.cnr.tr{right:9px;top:9px;border-left:0;border-bottom:0}
+.cnr.bl{left:9px;bottom:9px;border-right:0;border-top:0}
+.cnr.br{right:9px;bottom:9px;border-left:0;border-top:0}
+#hud.retask .cnr{transform:scale(1.06)}
+
+#sweep{position:absolute;inset:0;opacity:0;z-index:39;pointer-events:none}
+#hud.retask #sweep{animation:sweep .34s cubic-bezier(.25,.7,.3,1)}
+@keyframes sweep{
+  0%{opacity:0;transform:rotate(-42deg)}
+  25%{opacity:.5}
+  100%{opacity:0;transform:rotate(26deg)}
+}
+
+/* ── rails ─────────────────────────────────────────────────────────────── */
+.rail{position:absolute;left:0;right:0;display:flex;align-items:center;z-index:30;
+      padding:0 24px;gap:18px;transition:opacity .25s}
+#rt{top:0;height:46px;border-bottom:1px solid var(--line-2)}
+#rb{bottom:0;height:58px;border-top:1px solid var(--line-2)}
+body.bare .rail{opacity:0;pointer-events:none}
+body.dimchrome .rail{opacity:.22}
+.rail .sp{flex:1}
+.rail .sep{width:1px;height:14px;background:var(--line);opacity:.7}
+.rail .lbl{font-size:10.5px;letter-spacing:.22em;color:var(--steel)}
+.rail .val{font-size:12px;letter-spacing:.08em}
+
+#deg{display:flex;align-items:center;gap:10px}
+#degn{color:var(--armed);font-size:12px;text-shadow:var(--gl-a)}
+#degt{font-size:12.5px;letter-spacing:.24em;color:var(--core)}
+
+/* ── touch target + lock-on brackets ───────────────────────────────────── */
+.tgt{position:relative;min-height:48px;display:inline-flex;align-items:center;
+     cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;
+     transition:transform .12s cubic-bezier(.2,.9,.2,1)}
+.tgt:active{transform:scale(.985)}
+.lk{position:absolute;inset:-5px;pointer-events:none;opacity:0;transform:scale(1.15);
+    transition:opacity .13s ease,transform .16s cubic-bezier(.2,.9,.2,1)}
+.tgt:active .lk,.tgt.lock .lk{opacity:1;transform:scale(1)}
+.lk b{position:absolute;width:11px;height:11px;border:1.5px solid var(--armed)}
+.lk b:nth-child(1){left:0;top:0;border-right:0;border-bottom:0}
+.lk b:nth-child(2){right:0;top:0;border-left:0;border-bottom:0}
+.lk b:nth-child(3){left:0;bottom:0;border-right:0;border-top:0}
+.lk b:nth-child(4){right:0;bottom:0;border-left:0;border-top:0}
+.tgt:focus-visible{outline:1.5px solid var(--armed);outline-offset:4px}
+
+/* ── panel: the bracket grammar ────────────────────────────────────────── */
+.pnl{position:relative;background:linear-gradient(180deg,var(--fill),var(--fill-2));
+     border:1px solid var(--line)}
+.pnl::before,.pnl::after{content:"";position:absolute;width:9px;height:9px;
+     border:1px solid var(--holo);opacity:.85;pointer-events:none}
+.pnl::before{left:-1px;top:-1px;border-right:0;border-bottom:0}
+.pnl::after{right:-1px;bottom:-1px;border-left:0;border-top:0}
+.pnl.hot{border-color:rgba(255,160,46,.4);background:linear-gradient(180deg,rgba(255,160,46,.10),rgba(255,160,46,.02))}
+.pnl.hot::before,.pnl.hot::after{border-color:var(--armed)}
+.pnl.flat{background:none}
+
+/* ── buttons ───────────────────────────────────────────────────────────── */
+.btn{position:relative;min-height:48px;padding:0 20px;display:inline-flex;align-items:center;
+     justify-content:center;gap:9px;border:1px solid var(--line);color:var(--holo);
+     background:linear-gradient(180deg,var(--fill),transparent);cursor:pointer;
+     font-family:'Arial Narrow','Helvetica Neue','Liberation Sans Narrow',Arial,sans-serif;
+     font-stretch:75%;text-transform:uppercase;letter-spacing:.16em;font-size:12.5px;
+     -webkit-tap-highlight-color:transparent;user-select:none;
+     transition:transform .12s cubic-bezier(.2,.9,.2,1),border-color .15s,color .15s}
+.btn:active{transform:scale(.975)}
+.btn:hover{border-color:rgba(127,212,250,.45);color:var(--core)}
+.btn:focus-visible{outline:1.5px solid var(--armed);outline-offset:3px}
+.btn.arm{border-color:rgba(255,160,46,.45);color:var(--armed);
+         background:linear-gradient(180deg,rgba(255,160,46,.13),transparent);text-shadow:var(--gl-a)}
+.btn.arm:hover{border-color:var(--armed);color:#FFC271}
+.btn.gh{border-color:var(--steel-2);color:var(--steel);background:none}
+.btn.gh:hover{color:var(--holo);border-color:var(--line)}
+.btn.sm{min-height:48px;padding:0 14px;font-size:11px}
+
+/* ── provenance badge: first-class ─────────────────────────────────────── */
+.prov{display:inline-flex;align-items:center;gap:9px;padding:7px 13px 7px 9px;
+      border:1px solid var(--line);background:rgba(46,159,223,.08);position:relative}
+.prov::before,.prov::after{content:"";position:absolute;width:6px;height:6px;border:1px solid currentColor;opacity:.9}
+.prov::before{left:-1px;top:-1px;border-right:0;border-bottom:0}
+.prov::after{right:-1px;bottom:-1px;border-left:0;border-top:0}
+.prov svg{display:block;flex:none}
+.prov .t{font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;
+   font-family:'Arial Narrow','Helvetica Neue','Liberation Sans Narrow',Arial,sans-serif;font-stretch:75%}
+.prov .n{font-size:10.5px;letter-spacing:.1em;font-family:ui-monospace,'DejaVu Sans Mono',Menlo,monospace;opacity:.75}
+.prov.sourced{color:var(--core);border-color:rgba(127,212,250,.4);text-shadow:var(--gl)}
+.prov.recalled{color:var(--holo-2);border-color:rgba(79,180,232,.3)}
+.prov.general{color:var(--steel);border-color:var(--steel-2);background:rgba(123,147,163,.06)}
+.prov.nosource{color:var(--armed);border-color:rgba(255,160,46,.45);background:none;text-shadow:var(--gl-a)}
+.prov.toolerror{color:#0B0704;border-color:var(--armed);background:var(--armed)}
+.prov.bare{border:0;background:none;padding:0}
+.prov.bare::before,.prov.bare::after{display:none}
+.prov.toolerror .n{opacity:.65}
+
+/* ── screens ───────────────────────────────────────────────────────────── */
+.scr{position:absolute;left:0;right:0;top:46px;bottom:58px;display:none;overflow:hidden}
+.scr.on{display:block}
+.scr.full{top:0;bottom:0;z-index:20}
+.pad{position:absolute;inset:0;padding:22px 30px}
+.scr.on .stg>*{animation:stgin .3s cubic-bezier(.2,.85,.3,1) backwards}
+.scr.on .stg>*:nth-child(1){animation-delay:.02s}
+.scr.on .stg>*:nth-child(2){animation-delay:.06s}
+.scr.on .stg>*:nth-child(3){animation-delay:.1s}
+.scr.on .stg>*:nth-child(4){animation-delay:.14s}
+.scr.on .stg>*:nth-child(5){animation-delay:.18s}
+.scr.on .stg>*:nth-child(6){animation-delay:.22s}
+@keyframes stgin{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+
+/* headers */
+.hd{display:flex;align-items:flex-end;gap:16px;margin-bottom:16px}
+.hd h1{font-size:27px;letter-spacing:.16em;color:var(--core);font-weight:500;line-height:1;
+  font-family:'Arial Narrow','Helvetica Neue','Liberation Sans Narrow',Arial,sans-serif;
+  font-stretch:75%;text-transform:uppercase;text-shadow:0 0 14px rgba(120,200,255,.45)}
+.hd .sub{font-size:11px;letter-spacing:.2em;color:var(--steel);padding-bottom:3px}
+.hd .sp{flex:1}
+.rule{height:1px;background:linear-gradient(90deg,var(--deep),rgba(46,159,223,.06));margin-bottom:16px}
+
+/* generic bits */
+.kv{display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:6px 0}
+.kv .k{color:var(--steel);letter-spacing:.14em;font-size:10.5px;text-transform:uppercase}
+.eyebrow{font-size:10px;letter-spacing:.26em;color:var(--steel);text-transform:uppercase;
+  font-family:'Arial Narrow','Helvetica Neue','Liberation Sans Narrow',Arial,sans-serif;font-stretch:75%}
+.scroll{overflow-y:auto;overscroll-behavior:contain}
+/* a fixed-height grid must never squeeze its rows below their content */
+.scroll,.navgrid{grid-auto-rows:min-content}
+.dot{width:6px;height:6px;flex:none;background:currentColor;border-radius:50%;box-shadow:0 0 7px currentColor}
+.pulse{animation:pl 1.4s ease-in-out infinite}
+@keyframes pl{0%,100%{opacity:1}50%{opacity:.25}}
+.spin{animation:sp 9s linear infinite;transform-origin:center}
+.spinr{animation:sp 13s linear infinite reverse;transform-origin:center}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* ── INDEX navigator ───────────────────────────────────────────────────── */
+#nav{position:absolute;inset:0;background:#000;z-index:50;display:none}
+#nav.on{display:block}
+#nav.on .navin{animation:stgin .26s cubic-bezier(.2,.85,.3,1) backwards}
+.navcols{position:absolute;inset:64px 34px 26px;display:flex;gap:12px;align-items:flex-start}
+.navcol{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
+.navgroup{display:flex;align-items:center;gap:10px;margin:10px 0 3px}
+.navcol>.navgroup:first-child{margin-top:0}
+.navgroup .ln{flex:1;height:1px;background:var(--line-2)}
+.navitem{display:flex;flex-direction:column;justify-content:center;gap:2px;
+  padding:6px 11px;min-height:48px;border:1px solid var(--line-2);
+  background:linear-gradient(180deg,var(--fill-2),transparent)}
+.navitem:hover{border-color:var(--line)}
+.navitem.cur{border-color:rgba(255,160,46,.5);background:linear-gradient(180deg,rgba(255,160,46,.1),transparent)}
+.navitem .nn{font-size:10px;letter-spacing:.14em;color:var(--steel)}
+.navitem.cur .nn{color:var(--armed)}
+.navitem .nt{font-size:12.5px;letter-spacing:.13em;color:var(--holo);text-transform:uppercase;
+  font-family:'Arial Narrow','Helvetica Neue','Liberation Sans Narrow',Arial,sans-serif;font-stretch:75%}
+.navitem.cur .nt{color:var(--core)}
+
+/* ── toggle ────────────────────────────────────────────────────────────── */
+.tog{position:relative;width:62px;height:30px;border:1px solid var(--steel-2);flex:none;
+  background:rgba(123,147,163,.07);transition:border-color .2s,background .2s}
+.tog i{position:absolute;left:2px;top:2px;width:26px;height:24px;background:var(--steel);
+  display:block;transition:transform .22s cubic-bezier(.3,.9,.3,1),background .2s}
+.tog.on{border-color:rgba(255,160,46,.55);background:rgba(255,160,46,.1)}
+.tog.on i{transform:translateX(30px);background:var(--armed);box-shadow:0 0 10px rgba(255,160,46,.65)}
+.togwrap{min-height:48px;display:flex;align-items:center;padding-left:10px}
+
+/* ── chips ─────────────────────────────────────────────────────────────── */
+.chip{display:inline-flex;align-items:center;justify-content:center;padding:0 12px;height:26px;
+  border:1px solid var(--steel-2);color:var(--steel);font-size:10px;letter-spacing:.18em;
+  text-transform:uppercase;font-family:'Arial Narrow','Helvetica Neue','Liberation Sans Narrow',Arial,sans-serif;font-stretch:75%}
+.chip.on{border-color:rgba(127,212,250,.45);color:var(--holo);background:rgba(46,159,223,.1)}
+.chipt{min-height:48px;padding:0 16px;display:inline-flex;align-items:center;justify-content:center;
+  border:1px solid var(--steel-2);color:var(--steel);font-size:12px;letter-spacing:.16em;
+  text-transform:uppercase;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;
+  font-family:'Arial Narrow','Helvetica Neue','Liberation Sans Narrow',Arial,sans-serif;font-stretch:75%;
+  transition:transform .12s,border-color .15s,color .15s}
+.chipt:active{transform:scale(.96)}
+.chipt.on{border-color:rgba(255,160,46,.55);color:var(--armed);background:rgba(255,160,46,.1);text-shadow:var(--gl-a)}
+.chipt:focus-visible{outline:1.5px solid var(--armed);outline-offset:3px}
+
+/* ── tabs ──────────────────────────────────────────────────────────────── */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line-2)}
+.tab{min-height:48px;padding:0 16px;display:flex;align-items:center;gap:9px;cursor:pointer;
+  border-bottom:2px solid transparent;color:var(--steel);
+  -webkit-tap-highlight-color:transparent;user-select:none;transition:color .15s,border-color .15s}
+.tab .tn{font-size:12.5px;letter-spacing:.15em;text-transform:uppercase;
+  font-family:'Arial Narrow','Helvetica Neue','Liberation Sans Narrow',Arial,sans-serif;font-stretch:75%}
+.tab .tc{font-size:10px;letter-spacing:.08em;font-family:ui-monospace,'DejaVu Sans Mono',Menlo,monospace;
+  border:1px solid currentColor;padding:1px 5px;opacity:.7}
+.tab.on{color:var(--core);border-bottom-color:var(--armed);text-shadow:var(--gl)}
+.tab:focus-visible{outline:1.5px solid var(--armed);outline-offset:-3px}
+
+/* ── boot ──────────────────────────────────────────────────────────────── */
+#boot .bootwrap{position:absolute;inset:0}
+.bootcore{position:absolute;left:50%;top:148px;transform:translateX(-50%);width:320px;height:320px}
+.bootlist{position:absolute;left:50%;top:496px;transform:translateX(-50%);width:600px}
+.bootrow{display:flex;align-items:center;gap:14px;height:23px;font-size:11.5px;letter-spacing:.1em;
+  opacity:0;animation:bootin .3s ease forwards}
+@keyframes bootin{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}
+.bootrow .bn{color:var(--steel-2);width:26px}
+.bootrow .bl{flex:1;color:var(--holo-2)}
+.bootrow .bs{color:var(--steel)}
+.bootrow.ok .bs{color:var(--core);text-shadow:var(--gl)}
+.bootrow.warn .bs{color:var(--armed);text-shadow:var(--gl-a)}
+#bootmark{position:absolute;left:50%;top:60px;transform:translateX(-50%);text-align:center}
+
+/* ── idle ──────────────────────────────────────────────────────────────── */
+#idlecore{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:520px;height:520px}
+.clockface{position:absolute;inset:0;display:grid;place-items:center;text-align:center}
+#clock{font-size:138px;line-height:.9;letter-spacing:.01em;color:var(--core);
+  font-family:'Arial Narrow','Helvetica Neue','Liberation Sans Narrow',Arial,sans-serif;
+  font-stretch:75%;font-weight:400;transform:scaleX(.86);
+  text-shadow:0 0 30px rgba(90,190,255,.45),0 0 70px rgba(46,159,223,.2)}
+#clocksec{font-size:13px;letter-spacing:.34em;color:var(--armed);margin-top:14px;text-shadow:var(--gl-a)}
+#clockdate{font-size:12.5px;letter-spacing:.3em;color:var(--steel);margin-top:6px}
+.leader{position:absolute;display:flex;align-items:center;gap:0;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;user-select:none}
+.leader .ldln{height:1px;background:linear-gradient(90deg,rgba(46,159,223,.55),rgba(46,159,223,.12));width:56px}
+.leader .ldln.r{background:linear-gradient(270deg,rgba(46,159,223,.55),rgba(46,159,223,.12))}
+.leader .ldbx{position:relative;padding:9px 14px;min-height:48px;display:flex;flex-direction:column;
+  justify-content:center;gap:2px;border:1px solid var(--line-2);width:252px;
+  background:linear-gradient(180deg,var(--fill-2),transparent);transition:border-color .18s}
+.leader:hover .ldbx{border-color:var(--line)}
+.leader .lk{inset:-5px -5px -5px 51px}
+.leader.left .lk{inset:-5px 51px -5px -5px}
+.leader .ldk{font-size:9.5px;letter-spacing:.24em;color:var(--steel);text-transform:uppercase}
+.leader .ldv{font-size:13px;letter-spacing:.08em;color:var(--holo);white-space:nowrap}
+.leader.left{flex-direction:row}
+.leader.left .ldbx{text-align:right;align-items:flex-end}
+
+/* sleep */
+#sleep .slwrap{position:absolute;inset:0;display:grid;place-items:center;text-align:center}
+#sleepclock{font-size:96px;line-height:1;color:rgba(127,212,250,.3);
+  font-family:'Arial Narrow','Helvetica Neue','Liberation Sans Narrow',Arial,sans-serif;
+  font-stretch:75%;transform:scaleX(.88);text-shadow:0 0 22px rgba(46,159,223,.16)}
+
+/* wake / listen / think / speak */
+.voicecore{position:absolute;left:50%;top:236px;transform:translate(-50%,-50%);width:340px;height:340px}
+.voicetxt{position:absolute;left:120px;right:120px;top:430px;text-align:center}
+#waveform{position:absolute;inset:0}
+
+/* transcript */
+.tsc{font-size:25px;line-height:1.4;color:var(--core);letter-spacing:.005em;
+  font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-weight:300;
+  text-shadow:0 0 16px rgba(120,200,255,.32);min-height:70px}
+.tsc .prov{vertical-align:middle}
+.caret{display:inline-block;width:10px;height:24px;background:var(--armed);
+  vertical-align:-4px;margin-left:3px;box-shadow:0 0 10px rgba(255,160,46,.7);
+  animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+
+/* source excerpt */
+.exc{padding:14px 16px;position:relative}
+.exc .q{font-size:14px;line-height:1.55;color:var(--holo);font-weight:300;margin:8px 0 10px}
+.exc .m{display:flex;align-items:center;gap:10px;font-size:10px;letter-spacing:.16em;color:var(--steel);text-transform:uppercase}
+
+/* cards / rows */
+.row{display:flex;align-items:center;gap:14px;padding:12px 16px;min-height:64px;
+  border-bottom:1px solid var(--line-2);cursor:pointer;position:relative;
+  -webkit-tap-highlight-color:transparent;transition:background .15s}
+.row:hover{background:rgba(46,159,223,.05)}
+.row:focus-visible{outline:1.5px solid var(--armed);outline-offset:-3px}
+
+/* misc animation guards */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;
+    transition-duration:.001ms!important}
+}
+</style>
+
+<div id="fit"><div id="hud">
+
+<!-- ══ FRAME ══════════════════════════════════════════════════════════ -->
+<div id="frame">
+  <i class="cnr tl"></i><i class="cnr tr"></i><i class="cnr bl"></i><i class="cnr br"></i>
+</div>
+<svg id="sweep" viewBox="0 0 1280 800" aria-hidden="true">
+  <circle cx="640" cy="400" r="470" fill="none" stroke="#2E9FDF" stroke-width="1.5"
+          stroke-dasharray="520 2434" stroke-linecap="butt"/>
+  <circle cx="640" cy="400" r="440" fill="none" stroke="#7FD4FA" stroke-width="1"
+          stroke-dasharray="180 2584" opacity=".6"/>
+</svg>
+
+<!-- ══ TOP RAIL ═══════════════════════════════════════════════════════ -->
+<div class="rail" id="rt">
+  <span class="cd gl" style="font-size:14px;letter-spacing:.4em">ATLAS</span>
+  <span class="mo st" style="font-size:10px">MK VII</span>
+  <span class="sep"></span>
+  <span id="deg"><span class="mo" id="degn">S-01</span><span class="cd" id="degt">BOOT</span></span>
+  <span class="sp"></span>
+  <span class="mo st" style="font-size:10.5px" id="rttemp">CPU 51°C</span>
+  <span class="sep"></span>
+  <span class="tgt" id="micstate" style="gap:8px;padding:0 6px" role="button" tabindex="0" aria-label="Microphone state">
+    <span class="dot" id="micdot" style="color:var(--armed)"></span>
+    <span class="cd" style="font-size:11px" id="mictxt">MIC LIVE</span>
+  </span>
+  <span class="sep"></span>
+  <span class="mo" id="rtclock" style="font-size:12.5px;color:var(--core)">—</span>
+</div>
+
+<!-- ══ BOTTOM RAIL ════════════════════════════════════════════════════ -->
+<div class="rail" id="rb">
+  <span class="tgt" id="indexbtn" style="gap:10px;padding:0 12px 0 4px" role="button" tabindex="0" aria-label="Open screen index">
+    <svg width="17" height="17" viewBox="0 0 17 17" aria-hidden="true">
+      <rect x="1" y="1" width="6" height="6" fill="none" stroke="#7FD4FA"/>
+      <rect x="10" y="1" width="6" height="6" fill="none" stroke="#7FD4FA" opacity=".55"/>
+      <rect x="1" y="10" width="6" height="6" fill="none" stroke="#7FD4FA" opacity=".55"/>
+      <rect x="10" y="10" width="6" height="6" fill="none" stroke="#FFA02E"/>
+    </svg>
+    <span class="cd" style="font-size:12px;letter-spacing:.24em">INDEX</span>
+  </span>
+  <span class="sep"></span>
+  <span id="rbctx" style="display:flex;align-items:center;gap:10px;flex:1"></span>
+  <span class="mo st" style="font-size:10px" id="rbnet">LINK · WPA2 · 84%</span>
+  <span class="sep"></span>
+  <span id="statepill" class="cd" style="font-size:11.5px;letter-spacing:.22em;padding:6px 12px;border:1px solid var(--line);color:var(--holo)">IDLE</span>
+</div>
+
+<!-- ══ INDEX NAVIGATOR ════════════════════════════════════════════════ -->
+<div id="nav" role="dialog" aria-label="Screen index">
+  <div class="navin" style="position:absolute;left:34px;right:34px;top:26px;display:flex;align-items:center;gap:16px">
+    <span class="cd co" style="font-size:19px;letter-spacing:.3em">SCREEN INDEX</span>
+    <span class="mo st" style="font-size:11px">31 SCREENS</span>
+    <span style="flex:1;height:1px;background:var(--line-2)"></span>
+    <span class="btn sm" id="navclose" role="button" tabindex="0">CLOSE</span>
+  </div>
+  <div class="navcols navin" id="navgrid"></div>
+  <div class="navin" style="position:absolute;left:34px;right:34px;bottom:26px;display:flex;align-items:center;gap:14px">
+    <span style="flex:1;height:1px;background:var(--line-2)"></span>
+    <span class="mo st" style="font-size:10.5px;letter-spacing:.14em">
+      EVERY SCREEN IS ALSO REACHABLE IN FLOW — TAP A TIMER TO EDIT IT, A SOURCE TO READ IT, A CONTACT TO TEXT THEM
+    </span>
+    <span style="flex:1;height:1px;background:var(--line-2)"></span>
+  </div>
+</div>
+
+<!-- ══ 01 BOOT ════════════════════════════════════════════════════════ -->
+<section class="scr full" id="boot">
+  <div class="bootwrap">
+    <div id="bootmark">
+      <div class="cd co" style="font-size:34px;letter-spacing:.56em">ATLAS</div>
+      <div class="mo st" style="font-size:10.5px;letter-spacing:.3em;margin-top:8px">MARK VII · DORM UNIT 412 · ST. LOUIS</div>
+    </div>
+    <div class="bootcore" id="bootcore"></div>
+    <div class="bootlist" id="bootlist"></div>
+  </div>
+  <div style="position:absolute;right:30px;bottom:26px" class="btn gh tgt" id="bootskip" role="button" tabindex="0">SKIP</div>
+</section>
+
+<!-- ══ 02 IDLE ════════════════════════════════════════════════════════ -->
+<section class="scr" id="idle">
+  <div id="idlecore">
+    <svg viewBox="0 0 520 520" id="idlerings" style="position:absolute;inset:0" aria-hidden="true"></svg>
+    <div class="clockface">
+      <div>
+        <div id="clock">—</div>
+        <div id="clocksec" class="mo">SEC 00</div>
+        <div id="clockdate" class="cd">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="leader left tgt" style="left:104px;top:196px" data-go="agenda" role="button" tabindex="0">
+    <span class="ldbx"><span class="ldk">Next up</span><span class="ldv mo">2:30 PM · CHEM 261 LAB</span></span>
+    <span class="ldln r"></span>
+  </div>
+  <div class="leader left tgt" style="left:104px;top:404px" data-go="timers" role="button" tabindex="0">
+    <span class="ldbx"><span class="ldk">Timer running</span><span class="ldv mo" id="idletimer">—</span></span>
+    <span class="ldln r"></span>
+  </div>
+  <div class="leader tgt" style="right:104px;top:196px" data-go="weather" role="button" tabindex="0">
+    <span class="ldln"></span>
+    <span class="ldbx"><span class="ldk">Outside</span><span class="ldv mo">91° · FEELS 101° · HUMID</span></span>
+  </div>
+  <div class="leader tgt" style="right:104px;top:404px" data-go="alarms" role="button" tabindex="0">
+    <span class="ldln"></span>
+    <span class="ldbx"><span class="ldk">Next alarm</span><span class="ldv mo">7:10 AM · WEEKDAYS</span></span>
+  </div>
+
+  <div style="position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:flex;gap:12px">
+    <span class="btn gh tgt" data-go="sleep" role="button" tabindex="0">SLEEP</span>
+    <span class="btn gh tgt" data-go="boot" role="button" tabindex="0">REPLAY BOOT</span>
+  </div>
+</section>
+
+<!-- ══ 03 SLEEP ═══════════════════════════════════════════════════════ -->
+<section class="scr full" id="sleep">
+  <div class="slwrap tgt" id="sleeptap" role="button" tabindex="0" aria-label="Wake Atlas" style="display:grid">
+    <div>
+      <svg width="300" height="300" viewBox="0 0 300 300" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)" aria-hidden="true">
+        <circle cx="150" cy="150" r="140" fill="none" stroke="rgba(46,159,223,.13)" stroke-width="1"/>
+        <circle cx="150" cy="150" r="118" fill="none" stroke="rgba(46,159,223,.07)" stroke-width="1" stroke-dasharray="3 9"/>
+      </svg>
+      <div id="sleepclock" class="mo">—</div>
+      <div class="cd" style="font-size:11px;letter-spacing:.4em;color:rgba(123,147,163,.55);margin-top:22px">TAP · OR SAY ATLAS</div>
+      <div class="mo" style="font-size:10px;letter-spacing:.2em;color:rgba(123,147,163,.3);margin-top:10px">SCREEN DIMMED · WAKE WORD STILL LISTENING</div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 04 WAKE ════════════════════════════════════════════════════════ -->
+<section class="scr" id="wake">
+  <div class="voicecore" id="wakecore"></div>
+  <div class="voicetxt">
+    <div class="cd co" style="font-size:44px;letter-spacing:.4em">ATLAS</div>
+    <div class="mo" style="font-size:11px;letter-spacing:.24em;color:var(--armed);margin-top:14px;text-shadow:var(--gl-a)">
+      WAKE WORD MATCHED · CONFIDENCE 0.94
+    </div>
+    <div class="mo st" style="font-size:10.5px;letter-spacing:.18em;margin-top:8px">MIC ARMED · FAR-FIELD ARRAY 4CH</div>
+  </div>
+</section>
+
+<!-- ══ 05 LISTENING ═══════════════════════════════════════════════════ -->
+<section class="scr" id="listen">
+  <div class="voicecore" id="listencore">
+    <svg viewBox="0 0 340 340" id="waveform" aria-hidden="true"></svg>
+    <div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center">
+      <div>
+        <div class="cd am" style="font-size:15px;letter-spacing:.36em">LISTENING</div>
+        <div class="mo" style="font-size:10.5px;letter-spacing:.2em;color:var(--steel);margin-top:8px" id="listenlvl">−28 dBFS</div>
+      </div>
+    </div>
+  </div>
+  <div class="voicetxt">
+    <div class="eyebrow" style="margin-bottom:12px">YOU'RE SAYING</div>
+    <div class="tsc" id="listentxt"><span class="caret"></span></div>
+  </div>
+  <div style="position:absolute;left:50%;bottom:18px;transform:translateX(-50%);display:flex;gap:12px">
+    <span class="btn gh tgt" data-go="idle" role="button" tabindex="0">NEVER MIND</span>
+    <span class="btn tgt" id="listenskip" role="button" tabindex="0">DONE TALKING</span>
+  </div>
+</section>
+
+<!-- ══ 06 THINKING ════════════════════════════════════════════════════ -->
+<section class="scr" id="think">
+  <div class="voicecore" id="thinkcore"></div>
+  <div class="voicetxt">
+    <div class="cd co" style="font-size:19px;letter-spacing:.34em">WORKING ON IT</div>
+    <div id="thinksteps" style="margin-top:22px;display:flex;flex-direction:column;gap:9px;align-items:center"></div>
+  </div>
+</section>
+
+<!-- ══ 07 SPEAKING ════════════════════════════════════════════════════ -->
+<section class="scr" id="speak">
+  <div class="pad stg">
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:6px">
+      <svg width="30" height="30" viewBox="0 0 30 30" class="spin" aria-hidden="true">
+        <circle cx="15" cy="15" r="13" fill="none" stroke="#2E9FDF" stroke-width="1" stroke-dasharray="20 12"/>
+        <circle cx="15" cy="15" r="7" fill="none" stroke="#7FD4FA" stroke-width="1.5" stroke-dasharray="11 7"/>
+      </svg>
+      <span class="eyebrow">ATLAS IS SPEAKING</span>
+      <span style="flex:1;height:1px;background:var(--line-2)"></span>
+      <span id="speakprov"></span>
+    </div>
+
+    <div style="display:flex;gap:26px;height:566px">
+      <div style="flex:1;padding-top:26px">
+        <div class="mo st" style="font-size:11px;letter-spacing:.15em;margin-bottom:18px">
+          YOU ASKED · "do I have anything before noon tomorrow, and will I need an umbrella"
+        </div>
+        <div class="tsc" id="speaktxt" style="font-size:29px;min-height:220px"></div>
+        <div id="speakactions" style="display:flex;gap:12px;margin-top:24px;opacity:0;transition:opacity .3s">
+          <span class="btn tgt" data-go="answer" role="button" tabindex="0">SHOW SOURCES</span>
+          <span class="btn gh tgt" data-go="people" role="button" tabindex="0">TEXT CARLOS</span>
+          <span class="btn gh tgt" data-go="idle" role="button" tabindex="0">THANKS, DONE</span>
+        </div>
+      </div>
+      <div style="width:296px;display:flex;flex-direction:column;gap:12px;height:566px">
+        <div class="eyebrow">WHERE THIS CAME FROM</div>
+        <div class="pnl tgt" data-go="answer" role="button" tabindex="0" style="display:block;padding:13px 15px">
+          <div class="prov sourced bare"><span class="t">Sourced</span><span class="n">· 2</span></div>
+          <div class="mo" style="font-size:11.5px;margin-top:9px;color:var(--holo)">Google Calendar · WashU</div>
+          <div class="mo st" style="font-size:10px;margin-top:4px">READ 40 SECONDS AGO</div>
+        </div>
+        <div class="pnl tgt" data-go="answer" role="button" tabindex="0" style="display:block;padding:13px 15px">
+          <div class="prov sourced bare"><span class="t">Sourced</span><span class="n">· 1</span></div>
+          <div class="mo" style="font-size:11.5px;margin-top:9px;color:var(--holo)">NWS St. Louis · hourly</div>
+          <div class="mo st" style="font-size:10px;margin-top:4px">READ 6 MINUTES AGO</div>
+        </div>
+        <div class="pnl tgt" data-go="memory" role="button" tabindex="0" style="display:block;padding:13px 15px">
+          <div class="prov recalled bare"><span class="t">Recalled</span><span class="n">· 2d</span></div>
+          <div class="mo" style="font-size:11.5px;margin-top:9px;color:var(--holo)">You walk to Danforth</div>
+          <div class="mo st" style="font-size:10px;margin-top:4px">TAP TO SEE WHAT ATLAS KNOWS</div>
+        </div>
+        <div style="flex:1"></div>
+        <div class="eyebrow">BADGE LEGEND</div>
+        <div style="display:flex;flex-wrap:wrap;gap:7px">
+          <span class="prov sourced"><span class="t">Sourced</span><span class="n">· 3</span></span>
+          <span class="prov recalled"><span class="t">Recalled</span><span class="n">· 2d</span></span>
+          <span class="prov general"><span class="t">General knowledge</span></span>
+          <span class="prov nosource"><span class="t">No source found</span></span>
+          <span class="prov toolerror"><span class="t">Tool error</span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 08 QUICK ANSWER ════════════════════════════════════════════════ -->
+<section class="scr" id="answer">
+  <div class="pad stg">
+    <div class="hd">
+      <h1>Quick answer</h1>
+      <span class="sub">ASKED 40 SECONDS AGO</span>
+      <span class="sp"></span>
+      <span class="prov sourced"><span class="t">Sourced</span><span class="n">· 3</span></span>
+    </div>
+    <div class="rule"></div>
+    <div style="display:flex;gap:26px">
+      <div style="width:520px">
+        <div class="mo st" style="font-size:11px;letter-spacing:.14em;margin-bottom:14px">
+          "DO I HAVE ANYTHING BEFORE NOON TOMORROW, AND WILL I NEED AN UMBRELLA"
+        </div>
+        <div class="pr" style="font-size:19px;line-height:1.55;color:var(--core);font-weight:300;text-shadow:0 0 14px rgba(120,200,255,.28)">
+          Nothing before noon. Your first thing tomorrow is Chem 261 lab at two thirty in Louderman.
+          Rain moves in around eleven and holds until about four, so take the umbrella if you're
+          leaving early for the creamery run.
+        </div>
+        <div style="display:flex;gap:12px;margin-top:26px;flex-wrap:wrap">
+          <span class="btn tgt" data-go="research" role="button" tabindex="0">RESEARCH THIS PROPERLY</span>
+          <span class="btn gh tgt" data-go="thread" role="button" tabindex="0">ASK A FOLLOW-UP</span>
+          <span class="btn gh tgt" data-go="idle" role="button" tabindex="0">DONE</span>
+        </div>
+        <div class="eyebrow" style="margin:34px 0 10px">WHAT ATLAS DIDN'T CHECK</div>
+        <div class="pnl flat" style="padding:15px 18px">
+          <div class="pr" style="font-size:14px;color:var(--holo)">
+            Your lacrosse group chat. If practice moved to the morning, this answer is wrong and
+            I wouldn't know — I only read the three calendars and the hourly forecast for this one.
+          </div>
+          <div style="display:flex;gap:10px;margin-top:14px;align-items:center">
+            <span class="prov nosource"><span class="t">Not checked</span><span class="n">· group chat</span></span>
+            <span class="btn gh sm tgt" data-go="inbox" role="button" tabindex="0">CHECK IT TOO</span>
+          </div>
+        </div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:11px">
+        <div class="eyebrow">SOURCE EXCERPTS · 3</div>
+        <div class="pnl exc">
+          <div class="m"><span class="dot" style="color:var(--holo)"></span>GOOGLE CALENDAR<span style="flex:1"></span><span class="mo">17 AUG</span></div>
+          <div class="q">"Chem 261 Lab — 2:30 PM–5:20 PM, Louderman 458. Bring goggles + lab notebook."</div>
+          <div class="m st"><span>ONLY EVENT BEFORE 6 PM</span></div>
+        </div>
+        <div class="pnl exc">
+          <div class="m"><span class="dot" style="color:var(--holo)"></span>NWS ST. LOUIS<span style="flex:1"></span><span class="mo">HOURLY</span></div>
+          <div class="q">"Showers likely 11 AM–4 PM, 70% chance. Rainfall around a tenth of an inch."</div>
+          <div class="m st"><span>ISSUED 6 MINUTES AGO</span></div>
+        </div>
+        <div class="pnl exc" style="border-color:rgba(79,180,232,.2)">
+          <div class="m"><span class="dot" style="color:var(--holo-2)"></span>ATLAS MEMORY<span style="flex:1"></span><span class="mo">2 DAYS OLD</span></div>
+          <div class="q">"James walks to campus from the 412 apartment — about 14 minutes."</div>
+          <div class="m st"><span>USED TO SUGGEST THE UMBRELLA</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 09 DEEP RESEARCH RUNNING ═══════════════════════════════════════ -->
+<section class="scr" id="research">
+  <div class="pad stg">
+    <div class="hd">
+      <h1>Researching</h1>
+      <span class="sub">STARTED <span id="resstart">—</span></span>
+      <span class="sp"></span>
+      <span class="mo am" style="font-size:12px" id="reselapsed">00:00</span>
+    </div>
+    <div class="rule"></div>
+    <div style="display:flex;gap:34px;align-items:flex-start">
+      <div style="width:340px;position:relative">
+        <svg viewBox="0 0 320 320" width="320" height="320" id="resring" aria-hidden="true"></svg>
+        <div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center;width:320px;height:320px">
+          <div>
+            <div class="mo co" style="font-size:46px;letter-spacing:.02em" id="respct">0%</div>
+            <div class="cd st" style="font-size:10.5px;letter-spacing:.26em;margin-top:6px">SOURCES READ</div>
+            <div class="mo" style="font-size:12px;margin-top:3px;color:var(--holo)"><span id="resread">0</span> / 14</div>
+          </div>
+        </div>
+      </div>
+      <div style="flex:1">
+        <div class="mo" style="font-size:14px;color:var(--core);margin-bottom:4px">Compare POS systems for Campus Creamery</div>
+        <div class="mo st" style="font-size:11px;margin-bottom:18px">CARD RATES · HARDWARE COST · TIPPING · INVENTORY FOR A 2-PERSON CART</div>
+        <div class="scroll" id="reslist" style="height:298px;padding-right:8px"></div>
+      </div>
+    </div>
+    <div style="position:absolute;left:30px;right:30px;bottom:14px;display:flex;gap:12px">
+      <span class="btn tgt" id="resopen" role="button" tabindex="0">OPEN RESULTS</span>
+      <span class="btn gh tgt" data-go="jobs" role="button" tabindex="0">RUN IT IN THE BACKGROUND</span>
+      <span style="flex:1"></span>
+      <span class="btn gh tgt" data-go="idle" role="button" tabindex="0">STOP RESEARCH</span>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 10 RESEARCH RESULTS ════════════════════════════════════════════ -->
+<section class="scr" id="results">
+  <div class="pad stg" style="padding-bottom:8px">
+    <div class="hd">
+      <h1>POS systems</h1>
+      <span class="sub">14 SOURCES · 4 MINUTES OF READING</span>
+      <span class="sp"></span>
+      <span class="prov sourced"><span class="t">Sourced</span><span class="n">· 14</span></span>
+    </div>
+    <div class="tabs" id="restabs"></div>
+    <div class="scroll" id="rescards" style="height:548px;padding:16px 8px 8px 0;display:grid;grid-template-columns:1fr 1fr;gap:12px;align-content:start"></div>
+  </div>
+</section>
+
+<!-- ══ 11 ARTICLE READER ══════════════════════════════════════════════ -->
+<section class="scr" id="article">
+  <div class="pad stg" style="padding-bottom:10px">
+    <div class="hd">
+      <h1 id="arttitle">Article</h1>
+      <span class="sp"></span>
+      <span class="btn gh tgt" data-go="results" role="button" tabindex="0">BACK TO SOURCES</span>
+    </div>
+    <div class="rule"></div>
+    <div style="display:flex;gap:28px">
+      <div class="scroll" id="artbody" style="flex:1;height:520px;padding-right:14px"></div>
+      <div style="width:290px;display:flex;flex-direction:column;gap:12px">
+        <div class="eyebrow">FIGURES ATLAS PULLED</div>
+        <div id="artfigs" style="display:flex;flex-direction:column;gap:9px"></div>
+        <div style="flex:1"></div>
+        <span class="btn tgt" data-go="thread" role="button" tabindex="0" style="width:100%">ASK A FOLLOW-UP</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 12 FOLLOW-UP THREAD ════════════════════════════════════════════ -->
+<section class="scr" id="thread">
+  <div class="pad stg" style="padding-bottom:10px;display:flex;flex-direction:column">
+    <div class="hd" style="margin-bottom:10px">
+      <h1>Follow-up</h1>
+      <span class="sub">POS SYSTEMS · CAMPUS CREAMERY</span>
+      <span class="sp"></span>
+      <div style="display:flex;gap:9px">
+        <span class="btn gh sm tgt" id="act-folder" role="button" tabindex="0">SAVE TO A FOLDER</span>
+        <span class="btn gh sm tgt" id="act-doc" role="button" tabindex="0">MAKE A DOCUMENT</span>
+        <span class="btn gh sm tgt" id="act-email" role="button" tabindex="0">EMAIL IT TO ME</span>
+      </div>
+    </div>
+    <div class="rule" style="margin-bottom:10px"></div>
+    <div class="scroll" id="threadlist" style="height:424px;padding-right:10px;display:flex;flex-direction:column;gap:14px"></div>
+    <div style="display:flex;gap:9px;margin-top:12px;flex-wrap:wrap" id="threadchips"></div>
+    <div style="display:flex;gap:10px;margin-top:11px">
+      <div class="pnl" style="flex:1;display:flex;align-items:center;padding:0 14px;min-height:52px">
+        <input id="threadin" placeholder="Ask another question" aria-label="Ask another question"
+               style="flex:1;background:none;border:0;color:var(--core);font-size:15px;letter-spacing:.01em;min-height:50px"
+               autocomplete="off">
+      </div>
+      <span class="btn arm tgt" id="threadsend" role="button" tabindex="0">SEND</span>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 13 WEATHER ═════════════════════════════════════════════════════ -->
+<section class="scr" id="weather">
+  <div class="pad stg">
+    <div class="hd">
+      <h1>St. Louis</h1>
+      <span class="sub">DELMAR LOOP · UPDATED 6 MIN AGO</span>
+      <span class="sp"></span>
+      <span class="prov sourced"><span class="t">Sourced</span><span class="n">· NWS LSX</span></span>
+    </div>
+    <div class="rule"></div>
+    <div style="display:flex;gap:28px">
+      <div style="width:392px">
+        <div style="position:relative;height:212px">
+          <svg viewBox="0 0 392 212" width="392" height="212" id="wxring" aria-hidden="true"></svg>
+          <div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center">
+            <div style="transform:translateY(-6px)">
+              <div class="cd co" style="font-size:84px;line-height:.9;letter-spacing:.01em;transform:scaleX(.9);
+                   text-shadow:0 0 30px rgba(90,190,255,.4)">91°</div>
+              <div class="cd" style="font-size:12px;letter-spacing:.28em;color:var(--holo);margin-top:8px">HOT · HUMID</div>
+            </div>
+          </div>
+        </div>
+        <div class="mo st" style="font-size:10.5px;text-align:center;letter-spacing:.14em">FEELS 101° · HUMIDITY 68% · WIND S 6 MPH</div>
+        <div style="position:relative;height:96px;margin-top:4px">
+          <svg viewBox="0 0 392 96" width="392" height="96" id="wxsun" aria-hidden="true"></svg>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:6px">
+          <div class="pnl" style="flex:1;padding:11px 13px"><div class="eyebrow">SUNRISE</div><div class="mo co" style="font-size:16px;margin-top:4px">6:22 AM</div></div>
+          <div class="pnl" style="flex:1;padding:11px 13px"><div class="eyebrow">SUNSET</div><div class="mo co" style="font-size:16px;margin-top:4px">7:56 PM</div></div>
+          <div class="pnl" style="flex:1;padding:11px 13px"><div class="eyebrow">DAYLIGHT</div><div class="mo am" style="font-size:16px;margin-top:4px" id="wxdaylight">—</div></div>
+        </div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:12px">
+        <div class="eyebrow">NEXT TWO DAYS</div>
+        <div class="pnl" style="padding:16px 18px;display:flex;align-items:center;gap:20px">
+          <div style="width:104px">
+            <div class="cd co" style="font-size:19px;letter-spacing:.2em">MON</div>
+            <div class="mo st" style="font-size:10.5px;margin-top:3px">17 AUG</div>
+          </div>
+          <svg width="52" height="52" viewBox="0 0 52 52" aria-hidden="true">
+            <path d="M13 32a9 9 0 0 1 1.6-17.9A12 12 0 0 1 37 18a8 8 0 0 1 1 15.9z" fill="none" stroke="#7FD4FA" stroke-width="1.4"/>
+            <path d="M18 40l-3 7M26 40l-3 7M34 40l-3 7" stroke="#FFA02E" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+          <div style="flex:1">
+            <div class="cd" style="font-size:13px;letter-spacing:.16em;color:var(--holo)">SHOWERS 11 AM – 4 PM</div>
+            <div class="mo st" style="font-size:11px;margin-top:5px">70% CHANCE · 0.10 IN · WIND S 9 MPH</div>
+          </div>
+          <div style="text-align:right">
+            <div class="cd co" style="font-size:34px;letter-spacing:.02em">84°</div>
+            <div class="mo st" style="font-size:12px">LOW 71°</div>
+          </div>
+        </div>
+        <div class="pnl" style="padding:16px 18px;display:flex;align-items:center;gap:20px">
+          <div style="width:104px">
+            <div class="cd co" style="font-size:19px;letter-spacing:.2em">TUE</div>
+            <div class="mo st" style="font-size:10.5px;margin-top:3px">18 AUG</div>
+          </div>
+          <svg width="52" height="52" viewBox="0 0 52 52" aria-hidden="true">
+            <circle cx="26" cy="26" r="10" fill="none" stroke="#FFA02E" stroke-width="1.5"/>
+            <g stroke="#FFA02E" stroke-width="1.5" stroke-linecap="round">
+              <path d="M26 6v6M26 40v6M6 26h6M40 26h6M12 12l4 4M36 36l4 4M40 12l-4 4M16 36l-4 4"/>
+            </g>
+          </svg>
+          <div style="flex:1">
+            <div class="cd" style="font-size:13px;letter-spacing:.16em;color:var(--holo)">CLEAR AND DRY</div>
+            <div class="mo st" style="font-size:11px;margin-top:5px">0% CHANCE · WIND NW 7 MPH · UV 8</div>
+          </div>
+          <div style="text-align:right">
+            <div class="cd co" style="font-size:34px;letter-spacing:.02em">88°</div>
+            <div class="mo st" style="font-size:12px">LOW 68°</div>
+          </div>
+        </div>
+        <div class="eyebrow" style="margin-top:4px">WHAT THIS CHANGES</div>
+        <div class="pnl" style="padding:14px 18px">
+          <div class="pr" style="font-size:14.5px;color:var(--holo)">
+            The creamery cart on Mudd Field is exposed. Monday's showers start about when you'd be
+            setting up — Atlas can move the 11 AM setup reminder to 9:30 AM.
+          </div>
+          <div style="display:flex;gap:10px;margin-top:14px">
+            <span class="btn sm tgt" data-go="eventconfirm" role="button" tabindex="0">MOVE THE REMINDER</span>
+            <span class="btn gh sm tgt" data-go="idle" role="button" tabindex="0">LEAVE IT</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;margin:12px 0 7px">
+      <span class="eyebrow">NEXT TWELVE HOURS</span>
+      <span style="flex:1;height:1px;background:var(--line-2)"></span>
+      <span class="mo st" style="font-size:10px">TEMPERATURE · CHANCE OF RAIN</span>
+    </div>
+    <div class="pnl" style="padding:14px 18px;display:flex;gap:6px" id="wxhours"></div>
+  </div>
+</section>
+
+<!-- ══ 14 TIMERS ══════════════════════════════════════════════════════ -->
+<section class="scr" id="timers">
+  <div class="pad stg">
+    <div class="hd">
+      <h1>Timers</h1>
+      <span class="sub" id="timercount">—</span>
+      <span class="sp"></span>
+      <span class="btn tgt" id="timeradd" role="button" tabindex="0">+ NEW TIMER</span>
+    </div>
+    <div class="rule"></div>
+    <div id="timergrid" style="display:flex;gap:16px;align-items:flex-start"></div>
+    <div id="timerquick" style="margin-top:20px">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+        <span class="eyebrow">START ANOTHER</span>
+        <span style="flex:1;height:1px;background:var(--line-2)"></span>
+        <span class="mo st" style="font-size:10.5px">TIMERS KEEP RUNNING WHEN THE SCREEN SLEEPS</span>
+      </div>
+      <div style="display:flex;gap:10px">
+        <span class="chipt tgt" data-quick="5|Sample cups out of the freezer" role="button" tabindex="0">5 MIN · SAMPLE CUPS</span>
+        <span class="chipt tgt" data-quick="12|Custard base — churn" role="button" tabindex="0">12 MIN · CHURN</span>
+        <span class="chipt tgt" data-quick="20|Base in the ice bath" role="button" tabindex="0">20 MIN · ICE BATH</span>
+        <span class="chipt tgt" data-quick="45|Chem 261 pre-lab reading" role="button" tabindex="0">45 MIN · PRE-LAB</span>
+        <span class="chipt tgt" data-quick="60|Dryer — 4th floor" role="button" tabindex="0">60 MIN · DRYER</span>
+      </div>
+    </div>
+    <div id="timerempty" style="display:none;text-align:center;padding-top:120px">
+      <div class="cd st" style="font-size:17px;letter-spacing:.26em">NO TIMERS RUNNING</div>
+      <div class="mo st" style="font-size:12px;margin-top:10px">Say "Atlas, set a timer for twelve minutes" — or start one here.</div>
+      <span class="btn tgt" id="timeradd2" role="button" tabindex="0" style="margin-top:22px">START A 12-MINUTE TIMER</span>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 15 ALARMS ══════════════════════════════════════════════════════ -->
+<section class="scr" id="alarms">
+  <div class="pad stg">
+    <div class="hd">
+      <h1>Alarms</h1>
+      <span class="sub" id="alarmnext">—</span>
+      <span class="sp"></span>
+      <span class="btn tgt" id="alarmadd" role="button" tabindex="0">+ NEW ALARM</span>
+    </div>
+    <div class="rule"></div>
+    <div class="scroll" style="height:540px;padding-right:8px" id="alarmlist"></div>
+  </div>
+</section>
+
+<!-- ══ 16 ALARM EDITOR ════════════════════════════════════════════════ -->
+<section class="scr" id="alarmedit">
+  <div class="pad stg">
+    <div class="hd">
+      <h1 id="aetitle">Edit alarm</h1>
+      <span class="sp"></span>
+      <span class="btn gh tgt" data-go="alarms" role="button" tabindex="0">CANCEL</span>
+      <span class="btn arm tgt" id="aesave" role="button" tabindex="0">SAVE ALARM</span>
+    </div>
+    <div class="rule"></div>
+    <div style="display:flex;gap:26px">
+      <!-- time -->
+      <div style="width:352px">
+        <div class="eyebrow" style="margin-bottom:12px">RING AT</div>
+        <div class="pnl" style="padding:12px 20px;position:relative">
+          <div style="position:relative;display:flex;align-items:center;justify-content:center;gap:10px">
+            <div style="text-align:center">
+              <span class="btn gh tgt" data-ae="h+1" role="button" tabindex="0" style="width:64px;min-height:48px;padding:0">▲</span>
+              <div class="cd co" id="aeh" style="font-size:52px;line-height:1.1;letter-spacing:.02em">07</div>
+              <span class="btn gh tgt" data-ae="h-1" role="button" tabindex="0" style="width:64px;min-height:48px;padding:0">▼</span>
+            </div>
+            <div class="cd co" style="font-size:46px;padding-bottom:8px">:</div>
+            <div style="text-align:center">
+              <span class="btn gh tgt" data-ae="m+5" role="button" tabindex="0" style="width:64px;min-height:48px;padding:0">▲</span>
+              <div class="cd co" id="aem" style="font-size:52px;line-height:1.1;letter-spacing:.02em">10</div>
+              <span class="btn gh tgt" data-ae="m-5" role="button" tabindex="0" style="width:64px;min-height:48px;padding:0">▼</span>
+            </div>
+            <div style="text-align:center;margin-left:8px">
+              <span class="btn gh tgt" data-ae="ap" role="button" tabindex="0" style="width:64px;min-height:48px;padding:0">▲</span>
+              <div class="cd co" id="aeap" style="font-size:32px;line-height:2.1;letter-spacing:.1em">AM</div>
+              <span class="btn gh tgt" data-ae="ap" role="button" tabindex="0" style="width:64px;min-height:48px;padding:0">▼</span>
+            </div>
+          </div>
+          <div class="mo st" style="font-size:11px;text-align:center;margin-top:10px" id="aeuntil">—</div>
+        </div>
+        <div class="eyebrow" style="margin:14px 0 9px">REPEATS ON</div>
+        <div style="display:flex;gap:6px" id="aedays"></div>
+        <div style="display:flex;gap:8px;margin-top:12px" id="aepresets">
+          <span class="chipt tgt" data-preset="weekdays" role="button" tabindex="0">WEEKDAYS</span>
+          <span class="chipt tgt" data-preset="weekend" role="button" tabindex="0">SAT + SUN</span>
+          <span class="chipt tgt" data-preset="daily" role="button" tabindex="0">DAILY</span>
+        </div>
+        <div class="eyebrow" style="margin:11px 0 8px">WHAT TO CALL IT</div>
+        <div class="pnl" style="padding:10px 14px">
+          <div class="cd co" id="aelabel" style="font-size:17px;letter-spacing:.11em;line-height:1.3">CHEM 261 LAB</div>
+          <div style="display:flex;gap:7px;margin-top:9px;flex-wrap:wrap" id="aelabels"></div>
+        </div>
+      </div>
+      <!-- sound -->
+      <div style="flex:1">
+        <div class="eyebrow" style="margin-bottom:12px">SOUND · TAP TO HEAR IT</div>
+        <div id="aesounds" style="display:grid;grid-template-columns:1fr 1fr;gap:10px"></div>
+        <div class="eyebrow" style="margin:20px 0 10px">VOLUME</div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="btn gh tgt" id="aevoldown" role="button" tabindex="0" style="width:56px;padding:0">−</span>
+          <div id="aevolbar" style="flex:1;display:flex;gap:4px"></div>
+          <span class="btn gh tgt" id="aevolup" role="button" tabindex="0" style="width:56px;padding:0">+</span>
+          <span class="mo co" id="aevoltxt" style="font-size:15px;width:52px;text-align:right">70%</span>
+        </div>
+        <div class="pnl hot" style="margin-top:16px;padding:14px 18px;display:flex;align-items:center;gap:16px">
+          <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
+            <circle cx="13" cy="13" r="11" fill="none" stroke="#FFA02E" stroke-width="1.4"/>
+            <path d="M13 7v7l4 3" stroke="#FFA02E" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+          </svg>
+          <div class="mo am" style="font-size:12px;flex:1" id="aesummary">—</div>
+        </div>
+        <div class="eyebrow" style="margin:14px 0 9px">WHEN IT RINGS</div>
+        <div class="pnl" style="padding:12px 18px">
+          <div class="kv"><span class="k">Rings for</span><span class="mo co">2 MIN · SNOOZE 9 MIN × 3</span></div>
+          <div class="kv"><span class="k">If you sleep through it</span><span class="mo co">ATLAS TEXTS YOU AT 7:40 AM</span></div>
+          <div class="kv"><span class="k">Says out loud</span><span class="pr" style="font-size:12.5px;color:var(--core)">“Ten past seven. Chem two sixty-one lab in fifty minutes.”</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 17 AGENDA ══════════════════════════════════════════════════════ -->
+<section class="scr" id="agenda">
+  <div class="pad stg">
+    <div class="hd">
+      <h1>Today</h1>
+      <span class="sub">SUNDAY 16 AUGUST · 4 EVENTS</span>
+      <span class="sp"></span>
+      <span class="btn tgt" id="agendanew" role="button" tabindex="0">+ NEW EVENT</span>
+    </div>
+    <div class="rule"></div>
+    <div style="display:flex;gap:26px">
+      <div class="scroll" style="width:756px;height:566px;padding-right:10px" id="agendarail"></div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:12px">
+        <div class="eyebrow">TOMORROW</div>
+        <div class="pnl" style="padding:14px 16px">
+          <div class="mo am" style="font-size:12px">2:30 PM – 5:20 PM</div>
+          <div class="cd co" style="font-size:16px;letter-spacing:.13em;margin-top:6px">CHEM 261 LAB</div>
+          <div class="mo st" style="font-size:11px;margin-top:5px">LOUDERMAN 458 · GOGGLES + NOTEBOOK</div>
+        </div>
+        <div class="pnl" style="padding:14px 16px">
+          <div class="mo" style="font-size:12px;color:var(--holo)">7:00 PM</div>
+          <div class="cd co" style="font-size:16px;letter-spacing:.13em;margin-top:6px">LACROSSE — TURF FIELD</div>
+          <div class="mo st" style="font-size:11px;margin-top:5px">CARLOS, DEV, PRIYA +6</div>
+        </div>
+        <div class="eyebrow" style="margin-top:6px">CALENDARS ATLAS READS</div>
+        <div class="pnl flat" style="padding:12px 14px">
+          <div class="kv"><span class="k">WashU (Google)</span><span class="mo" style="color:var(--core)">LIVE</span></div>
+          <div class="kv"><span class="k">Campus Creamery</span><span class="mo" style="color:var(--core)">LIVE</span></div>
+          <div class="kv"><span class="k">Lacrosse club (ICS)</span><span class="mo st">SYNCED 2H AGO</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 18 EVENT EDITOR ════════════════════════════════════════════════ -->
+<section class="scr" id="eventedit">
+  <div class="pad stg">
+    <div class="hd">
+      <h1>Event</h1>
+      <span class="sub">CAMPUS CREAMERY CALENDAR</span>
+      <span class="sp"></span>
+      <span class="btn gh tgt" data-go="agenda" role="button" tabindex="0">CANCEL</span>
+      <span class="btn arm tgt" data-go="eventconfirm" role="button" tabindex="0">SAVE EVENT</span>
+    </div>
+    <div class="rule"></div>
+    <div style="display:flex;gap:26px">
+      <div style="width:600px;display:flex;flex-direction:column;gap:12px">
+        <div class="pnl" style="padding:14px 18px">
+          <div class="eyebrow">TITLE</div>
+          <input id="evtitle" value="Mudd Field cart — setup" aria-label="Event title"
+            class="cd" style="width:100%;font-size:25px;letter-spacing:.1em;color:var(--core);background:none;border:0;margin-top:8px;min-height:48px">
+        </div>
+        <div style="display:flex;gap:12px">
+          <div class="pnl" style="flex:1;padding:14px 18px">
+            <div class="eyebrow">STARTS</div>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+              <span class="btn gh tgt" data-ev="t-15" role="button" tabindex="0" style="width:52px;padding:0">−</span>
+              <div class="mo co" id="evstart" style="font-size:26px;flex:1;text-align:center">9:30 AM</div>
+              <span class="btn gh tgt" data-ev="t+15" role="button" tabindex="0" style="width:52px;padding:0">+</span>
+            </div>
+          </div>
+          <div class="pnl" style="flex:1;padding:14px 18px">
+            <div class="eyebrow">RUNS FOR</div>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+              <span class="btn gh tgt" data-ev="d-15" role="button" tabindex="0" style="width:52px;padding:0">−</span>
+              <div class="mo co" id="evdur" style="font-size:26px;flex:1;text-align:center">90 MIN</div>
+              <span class="btn gh tgt" data-ev="d+15" role="button" tabindex="0" style="width:52px;padding:0">+</span>
+            </div>
+          </div>
+        </div>
+        <div class="pnl" style="padding:14px 18px">
+          <div class="eyebrow">WHERE</div>
+          <input id="evloc" value="Mudd Field, north walk" aria-label="Location"
+            class="mo" style="width:100%;font-size:17px;color:var(--core);background:none;border:0;margin-top:8px;min-height:48px">
+        </div>
+        <div class="pnl" style="padding:14px 18px">
+          <div class="eyebrow">WHO'S COMING</div>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" id="evpeople"></div>
+        </div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:12px">
+        <div class="eyebrow">REPEATS</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap" id="evrepeat"></div>
+        <div class="eyebrow" style="margin-top:8px">CONFLICTS ATLAS FOUND</div>
+        <div class="pnl hot" style="padding:14px 16px">
+          <div class="cd am" style="font-size:13px;letter-spacing:.16em">OVERLAPS BY 10 MINUTES</div>
+          <div class="mo" style="font-size:11.5px;color:var(--holo);margin-top:8px">Freezer delivery window — 10:00 to 11:00 AM</div>
+          <div class="mo st" style="font-size:10.5px;margin-top:6px">SAME CALENDAR · CAMPUS CREAMERY</div>
+        </div>
+        <div class="eyebrow" style="margin-top:8px">WHY THIS TIME</div>
+        <div class="pnl" style="padding:14px 16px">
+          <div class="pr" style="font-size:13.5px;color:var(--holo)">
+            You asked to beat Monday's rain. Showers start about 11 AM, so a 9:30 setup gets the
+            cart covered before the first band moves through.
+          </div>
+          <div style="margin-top:12px"><span class="prov sourced"><span class="t">Sourced</span><span class="n">· NWS hourly</span></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 19 TWO-PHASE CONFIRMATION ══════════════════════════════════════ -->
+<section class="scr" id="eventconfirm">
+  <div class="pad stg" id="ecphase1">
+    <div class="hd">
+      <h1>Read that back</h1>
+      <span class="sub">NOTHING IS SAVED YET</span>
+      <span class="sp"></span>
+      <span class="mo am" style="font-size:11.5px">PHASE 1 OF 2</span>
+    </div>
+    <div class="rule"></div>
+    <div style="display:flex;gap:34px;align-items:center;height:520px">
+      <div style="width:300px;position:relative;flex:none">
+        <svg viewBox="0 0 300 300" width="300" height="300" id="ecring" aria-hidden="true"></svg>
+        <div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center">
+          <div>
+            <div class="cd am" style="font-size:17px;letter-spacing:.3em">SAY YES</div>
+            <div class="mo st" style="font-size:10.5px;margin-top:8px">OR TAP CONFIRM</div>
+          </div>
+        </div>
+      </div>
+      <div style="flex:1">
+        <div class="eyebrow" style="margin-bottom:16px">ATLAS SAYS</div>
+        <div class="tsc" style="font-size:27px;min-height:120px" id="ecreadback"></div>
+        <div class="pnl flat" style="margin-top:26px;padding:16px 20px;display:flex;gap:34px">
+          <div><div class="eyebrow">WHEN</div><div class="mo co" style="font-size:16px;margin-top:6px">MON 17 AUG · 9:30 AM</div></div>
+          <div><div class="eyebrow">FOR</div><div class="mo co" style="font-size:16px;margin-top:6px">90 MINUTES</div></div>
+          <div><div class="eyebrow">WHERE</div><div class="mo co" style="font-size:16px;margin-top:6px">MUDD FIELD</div></div>
+          <div><div class="eyebrow">WITH</div><div class="mo co" style="font-size:16px;margin-top:6px">CARLOS</div></div>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:30px">
+          <span class="btn arm tgt" id="ecconfirm" role="button" tabindex="0" style="min-width:180px">YES, ADD IT</span>
+          <span class="btn gh tgt" data-go="eventedit" role="button" tabindex="0">CHANGE SOMETHING</span>
+          <span class="btn gh tgt" data-go="agenda" role="button" tabindex="0">CANCEL</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="pad" id="ecphase2" style="display:none">
+    <div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center">
+      <div>
+        <svg width="220" height="220" viewBox="0 0 220 220" id="ecdone" style="margin:0 auto" aria-hidden="true"></svg>
+        <div class="cd co" style="font-size:30px;letter-spacing:.3em;margin-top:26px">EVENT ADDED</div>
+        <div class="mo" style="font-size:13px;color:var(--holo);margin-top:12px">Mudd Field cart — setup · Mon 17 Aug, 9:30 AM</div>
+        <div class="mo st" style="font-size:11px;margin-top:6px">CAMPUS CREAMERY CALENDAR · CARLOS INVITED</div>
+        <div style="display:flex;gap:12px;margin-top:30px;justify-content:center">
+          <span class="btn tgt" data-go="agenda" role="button" tabindex="0">SEE TODAY</span>
+          <span class="btn gh tgt" data-go="idle" role="button" tabindex="0">DONE</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 20 CONTACT DISAMBIGUATION ══════════════════════════════════════ -->
+<section class="scr" id="people">
+  <div class="pad stg">
+    <div class="hd">
+      <h1>Which Carlos?</h1>
+      <span class="sub">THREE MATCHES IN YOUR CONTACTS</span>
+      <span class="sp"></span>
+      <span class="prov recalled"><span class="t">Recalled</span><span class="n">· contacts</span></span>
+    </div>
+    <div class="rule"></div>
+    <div class="mo st" style="font-size:12px;margin-bottom:18px">
+      YOU SAID · "text carlos that i'll be ten minutes late"
+    </div>
+    <div id="peoplecards" style="display:flex;gap:14px"></div>
+    <div style="margin-top:26px;display:flex;gap:12px">
+      <span class="btn gh tgt" data-go="idle" role="button" tabindex="0">NONE OF THESE</span>
+      <span class="mo st" style="align-self:center;font-size:11px;letter-spacing:.14em">SAY "THE FIRST ONE" OR TAP A CARD</span>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 21 TEXT MESSAGE ════════════════════════════════════════════════ -->
+<section class="scr" id="sms">
+  <div class="pad stg" id="smsphase1">
+    <div class="hd">
+      <h1>Send a text</h1>
+      <span class="sub">NOT SENT YET</span>
+      <span class="sp"></span>
+      <span class="mo am" style="font-size:11.5px">PHASE 1 OF 2</span>
+    </div>
+    <div class="rule"></div>
+    <div style="display:flex;gap:28px">
+      <div style="flex:1">
+        <div class="pnl" style="padding:16px 20px;display:flex;align-items:center;gap:16px">
+          <svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
+            <circle cx="22" cy="22" r="20" fill="none" stroke="#2E9FDF" stroke-width="1"/>
+            <circle cx="22" cy="22" r="20" fill="none" stroke="#7FD4FA" stroke-width="1.6" stroke-dasharray="34 92" transform="rotate(-90 22 22)"/>
+            <text x="22" y="27" text-anchor="middle" fill="#DCF2FF" font-size="14" font-family="monospace">CO</text>
+          </svg>
+          <div>
+            <div class="cd co" style="font-size:19px;letter-spacing:.14em">CARLOS ONTIVEROS</div>
+            <div class="mo st" style="font-size:11px;margin-top:4px">+1 (314) 555-0142 · SMS</div>
+          </div>
+          <span style="flex:1"></span>
+          <span class="btn gh sm tgt" data-go="people" role="button" tabindex="0">CHANGE PERSON</span>
+        </div>
+        <div class="eyebrow" style="margin:20px 0 10px">MESSAGE</div>
+        <div class="pnl" style="padding:20px 22px;min-height:160px">
+          <div class="tsc" style="font-size:23px" id="smsbody">Running about ten minutes late to the turf field — start without me.</div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap" id="smsedits"></div>
+        <div style="display:flex;gap:12px;margin-top:28px">
+          <span class="btn arm tgt" id="smssend" role="button" tabindex="0" style="min-width:170px">SEND IT</span>
+          <span class="btn gh tgt" data-go="idle" role="button" tabindex="0">DON'T SEND</span>
+        </div>
+      </div>
+      <div style="width:290px;display:flex;flex-direction:column;gap:12px">
+        <div class="eyebrow">RECENT WITH CARLOS</div>
+        <div class="pnl" style="padding:13px 15px">
+          <div class="mo st" style="font-size:10px">THU · YOU</div>
+          <div class="pr" style="font-size:13.5px;margin-top:5px;color:var(--holo)">"Freezer's fixed, we're back on for Saturday"</div>
+        </div>
+        <div class="pnl" style="padding:13px 15px">
+          <div class="mo st" style="font-size:10px">FRI · CARLOS</div>
+          <div class="pr" style="font-size:13.5px;margin-top:5px;color:var(--holo)">"Cool — I'll bring the second cooler"</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="pad" id="smsphase2" style="display:none">
+    <div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center">
+      <div>
+        <svg width="200" height="200" viewBox="0 0 220 220" id="smsdone" style="margin:0 auto" aria-hidden="true"></svg>
+        <div class="cd co" style="font-size:28px;letter-spacing:.3em;margin-top:24px">TEXT SENT</div>
+        <div class="mo" style="font-size:13px;color:var(--holo);margin-top:12px">To Carlos Ontiveros · delivered <span id="smstime">—</span></div>
+        <div style="display:flex;gap:12px;margin-top:28px;justify-content:center">
+          <span class="btn gh tgt" data-go="idle" role="button" tabindex="0">DONE</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 22 INBOX ═══════════════════════════════════════════════════════ -->
+<section class="scr" id="inbox">
+  <div class="pad stg">
+    <div class="hd">
+      <h1>Inbox</h1>
+      <span class="sub" id="inboxcount">—</span>
+      <span class="sp"></span>
+      <span class="btn gh tgt" id="inboxread" role="button" tabindex="0">MARK ALL READ</span>
+    </div>
+    <div class="rule"></div>
+    <div class="scroll" style="height:540px;padding-right:8px" id="inboxlist"></div>
+  </div>
+</section>
+
+<!-- ══ 23 EMAIL OPEN ══════════════════════════════════════════════════ -->
+<section class="scr" id="email">
+  <div class="pad stg">
+    <div class="hd">
+      <h1 id="emsubject">Message</h1>
+      <span class="sp"></span>
+      <span class="btn gh tgt" data-go="inbox" role="button" tabindex="0">BACK TO INBOX</span>
+      <span class="btn tgt" id="emsum" role="button" tabindex="0">SUMMARIZE IT</span>
+    </div>
+    <div class="rule"></div>
+    <div style="display:flex;gap:28px">
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+          <span class="dot" style="color:var(--armed)"></span>
+          <div>
+            <div class="cd co" id="emfrom" style="font-size:16px;letter-spacing:.14em">—</div>
+            <div class="mo st" id="emaddr" style="font-size:10.5px;margin-top:3px">—</div>
+          </div>
+          <span style="flex:1"></span>
+          <span class="mo st" id="emtime" style="font-size:11px">—</span>
+        </div>
+        <div id="emsumbox" class="pnl hot" style="display:none;padding:16px 18px;margin-bottom:16px">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+            <span class="cd am" style="font-size:12px;letter-spacing:.22em">ATLAS SUMMARY</span>
+            <span style="flex:1"></span>
+            <span class="prov sourced"><span class="t">Sourced</span><span class="n">· this email</span></span>
+          </div>
+          <div class="pr" style="font-size:15px;color:var(--core)" id="emsumtxt"></div>
+        </div>
+        <div class="scroll pr" id="embody" style="height:420px;padding-right:14px;font-size:15.5px;color:var(--holo)"></div>
+      </div>
+      <div style="width:280px;display:flex;flex-direction:column;gap:12px">
+        <div class="eyebrow">ATTACHED</div>
+        <div class="pnl" style="padding:12px 14px;display:flex;align-items:center;gap:12px">
+          <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+            <rect x="2" y="2" width="30" height="30" fill="none" stroke="#7FD4FA" stroke-width="1"/>
+            <path d="M2 24l9-8 6 5 5-4 10 8" fill="none" stroke="#2E9FDF" stroke-width="1.2"/>
+            <circle cx="24" cy="10" r="3" fill="none" stroke="#FFA02E" stroke-width="1.2"/>
+          </svg>
+          <div>
+            <div class="mo" style="font-size:11.5px;color:var(--core)">invoice-0812.pdf</div>
+            <div class="mo st" style="font-size:10px;margin-top:3px">248 KB</div>
+          </div>
+        </div>
+        <div class="eyebrow" style="margin-top:6px">WHAT YOU CAN DO</div>
+        <span class="btn tgt" id="emreply" role="button" tabindex="0" style="width:100%">REPLY WITH THE PHOTO</span>
+        <span class="btn gh tgt" data-go="jobs" role="button" tabindex="0" style="width:100%">HAVE ATLAS LOOK INTO IT</span>
+        <span class="btn gh tgt" data-go="inbox" role="button" tabindex="0" style="width:100%">ARCHIVE</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 24 EMAIL SEND CONFIRM ══════════════════════════════════════════ -->
+<section class="scr" id="emailsend">
+  <div class="pad stg" id="esphase1">
+    <div class="hd">
+      <h1>Read that back</h1>
+      <span class="sub">NOTHING IS SENT YET</span>
+      <span class="sp"></span>
+      <span class="mo am" style="font-size:11.5px">PHASE 1 OF 2</span>
+    </div>
+    <div class="rule"></div>
+    <div style="display:flex;gap:30px">
+      <div style="flex:1">
+        <div class="eyebrow" style="margin-bottom:14px">ATLAS SAYS</div>
+        <div class="tsc" style="font-size:24px" id="esreadback"></div>
+        <div class="pnl" style="margin-top:24px;padding:16px 20px">
+          <div class="kv"><span class="k">To</span><span class="mo co">Ray Whitfield · service@northsiderefrig.com</span></div>
+          <div class="kv"><span class="k">Subject</span><span class="mo co">Re: Invoice 0812 — freezer service call</span></div>
+          <div class="kv"><span class="k">Attachment</span><span class="mo am">freezer-panel-2026-08-14.jpg · 1.4 MB</span></div>
+        </div>
+        <div class="pnl" style="margin-top:14px;padding:18px 20px">
+          <div class="pr" style="font-size:15px;color:var(--core)">
+            Ray — here's the panel photo from Thursday. The error code was E4 and it cleared after
+            the compressor reset, but it came back Friday night. Can you tell from this whether the
+            board needs replacing before I pay the invoice?
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:26px">
+          <span class="btn arm tgt" id="esconfirm" role="button" tabindex="0" style="min-width:190px">YES, SEND IT</span>
+          <span class="btn gh tgt" data-go="email" role="button" tabindex="0">CHANGE SOMETHING</span>
+          <span class="btn gh tgt" data-go="inbox" role="button" tabindex="0">CANCEL</span>
+        </div>
+      </div>
+      <div style="width:300px">
+        <div class="eyebrow" style="margin-bottom:12px">THE PHOTO GOING OUT</div>
+        <div class="pnl" style="padding:10px">
+          <div id="esphoto"></div>
+          <div class="mo" style="font-size:11px;color:var(--core);margin-top:10px">freezer-panel-2026-08-14.jpg</div>
+          <div class="mo st" style="font-size:10px;margin-top:4px">TAKEN THU 14 AUG · 8:41 PM</div>
+        </div>
+        <span class="btn gh tgt" data-go="photos" role="button" tabindex="0" style="width:100%;margin-top:12px">PICK A DIFFERENT PHOTO</span>
+      </div>
+    </div>
+  </div>
+  <div class="pad" id="esphase2" style="display:none">
+    <div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center">
+      <div>
+        <svg width="200" height="200" viewBox="0 0 220 220" id="esdone" style="margin:0 auto" aria-hidden="true"></svg>
+        <div class="cd co" style="font-size:28px;letter-spacing:.3em;margin-top:24px">EMAIL SENT</div>
+        <div class="mo" style="font-size:13px;color:var(--holo);margin-top:12px">To Ray Whitfield · with freezer-panel-2026-08-14.jpg</div>
+        <div class="mo st" style="font-size:11px;margin-top:6px">ATLAS WILL TELL YOU WHEN HE REPLIES</div>
+        <div style="display:flex;gap:12px;margin-top:28px;justify-content:center">
+          <span class="btn gh tgt" data-go="inbox" role="button" tabindex="0">BACK TO INBOX</span>
+          <span class="btn gh tgt" data-go="idle" role="button" tabindex="0">DONE</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 25 CAMERA ══════════════════════════════════════════════════════ -->
+<section class="scr full" id="camera">
+  <div style="position:absolute;inset:0">
+    <canvas id="camcanvas" width="320" height="200" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:900px;height:562px;opacity:.55"></canvas>
+    <div id="camscan" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:900px;height:562px;overflow:hidden;pointer-events:none">
+      <i style="position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(127,212,250,.55),transparent);animation:scan 3.4s linear infinite"></i>
+    </div>
+    <svg id="camret" viewBox="0 0 1280 800" style="position:absolute;inset:0" aria-hidden="true"></svg>
+    <div id="camflash" style="position:absolute;inset:0;background:#DCF2FF;opacity:0;pointer-events:none"></div>
+
+    <div style="position:absolute;left:44px;top:62px;display:flex;align-items:center;gap:14px">
+      <span class="pnl hot" style="display:flex;align-items:center;gap:11px;padding:9px 15px">
+        <span class="dot pulse" style="color:var(--armed);width:11px;height:11px"></span>
+        <span class="cd am" style="font-size:14px;letter-spacing:.3em">RECORDING</span>
+        <span class="mo am" id="camtime" style="font-size:13px">00:00</span>
+      </span>
+      <span class="mo st" style="font-size:11px;letter-spacing:.16em">CAMERA ON · NOTHING LEAVES THIS ROOM UNTIL YOU SEND IT</span>
+    </div>
+
+    <div style="position:absolute;right:44px;top:62px;text-align:right">
+      <div class="mo" style="font-size:11px;color:var(--holo)">1920 × 1080 · 30 FPS</div>
+      <div class="mo st" style="font-size:10.5px;margin-top:4px">AE LOCK · WB 4100K · ISO 800</div>
+    </div>
+
+    <div style="position:absolute;left:0;right:0;bottom:76px;display:flex;align-items:center;justify-content:center;gap:20px">
+      <span class="btn gh tgt" data-go="photos" role="button" tabindex="0">CLOSE CAMERA</span>
+      <span class="tgt" id="camshot" role="button" tabindex="0" aria-label="Take a photo"
+            style="width:86px;height:86px;display:grid;place-items:center">
+        <svg width="86" height="86" viewBox="0 0 86 86" aria-hidden="true">
+          <circle cx="43" cy="43" r="41" fill="none" stroke="#FFA02E" stroke-width="1.5"/>
+          <circle cx="43" cy="43" r="33" fill="rgba(255,160,46,.14)" stroke="#FFA02E" stroke-width="2"/>
+          <circle cx="43" cy="43" r="24" fill="none" stroke="#FFA02E" stroke-width="1" opacity=".5"/>
+        </svg>
+      </span>
+      <span class="tgt" id="camthumb" role="button" tabindex="0" style="width:88px;height:64px;opacity:.35;pointer-events:none"></span>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 26 PHOTOS ══════════════════════════════════════════════════════ -->
+<section class="scr" id="photos">
+  <div class="pad stg" id="phgrid">
+    <div class="hd">
+      <h1>Photos</h1>
+      <span class="sub" id="phcount">—</span>
+      <span class="sp"></span>
+      <span class="btn tgt" data-go="camera" role="button" tabindex="0">TAKE A PHOTO</span>
+    </div>
+    <div class="rule"></div>
+    <div class="scroll" id="phlist" style="height:540px;padding-right:8px;display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-content:start"></div>
+  </div>
+  <div class="pad" id="phdetail" style="display:none">
+    <div class="hd">
+      <h1 id="phdtitle">Photo</h1>
+      <span class="sp"></span>
+      <span class="btn gh tgt" id="phback" role="button" tabindex="0">ALL PHOTOS</span>
+    </div>
+    <div class="rule"></div>
+    <div style="display:flex;gap:28px">
+      <div class="pnl" style="padding:12px" id="phdimg"></div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:14px">
+        <div class="eyebrow">WHAT ATLAS SEES</div>
+        <div class="pr" id="phdcap" style="font-size:17px;color:var(--core);line-height:1.55"></div>
+        <div><span class="prov general"><span class="t">General knowledge</span><span class="n">· on-device vision</span></span></div>
+        <div class="pnl flat" style="padding:12px 14px">
+          <div class="kv"><span class="k">Taken</span><span class="mo" id="phdwhen">—</span></div>
+          <div class="kv"><span class="k">Where</span><span class="mo" id="phdwhere">—</span></div>
+          <div class="kv"><span class="k">Used in</span><span class="mo" id="phduse">—</span></div>
+        </div>
+        <div style="flex:1"></div>
+        <div id="phdactions" style="display:flex;gap:12px">
+          <span class="btn tgt" id="phkeep" role="button" tabindex="0">KEEP PHOTO</span>
+          <span class="btn arm tgt" id="phforget" role="button" tabindex="0">FORGET PHOTO</span>
+        </div>
+        <div id="phdconfirm" class="pnl hot" style="display:none;padding:16px 18px">
+          <div class="cd am" style="font-size:14px;letter-spacing:.2em">DELETE THIS PHOTO FOR GOOD?</div>
+          <div class="pr" style="font-size:13.5px;color:var(--holo);margin-top:9px">
+            It's the only copy Atlas has, and it's attached to the draft to Ray. This can't be undone.
+          </div>
+          <div style="display:flex;gap:12px;margin-top:16px">
+            <span class="btn arm tgt" id="phforget2" role="button" tabindex="0">YES, FORGET IT</span>
+            <span class="btn gh tgt" id="phforgetno" role="button" tabindex="0">KEEP IT</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 27 MEMORY ══════════════════════════════════════════════════════ -->
+<section class="scr" id="memory">
+  <div class="pad stg">
+    <div class="hd">
+      <h1>What Atlas knows</h1>
+      <span class="sub" id="memcount">—</span>
+      <span class="sp"></span>
+      <span class="mo st" style="font-size:11px">RING SHOWS HOW OLD IT IS · FULL = TODAY</span>
+    </div>
+    <div class="rule"></div>
+    <div class="scroll" id="memlist" style="height:566px;padding-right:8px;display:grid;grid-template-columns:1fr 1fr;gap:12px;align-content:start"></div>
+  </div>
+</section>
+
+<!-- ══ 28 JOBS ════════════════════════════════════════════════════════ -->
+<section class="scr" id="jobs">
+  <div class="pad stg">
+    <div class="hd">
+      <h1>Running for you</h1>
+      <span class="sub">1 RUNNING · 1 QUEUED · 1 DONE</span>
+      <span class="sp"></span>
+      <span class="btn gh tgt" data-go="idle" role="button" tabindex="0">BACK</span>
+    </div>
+    <div class="rule"></div>
+    <div style="display:flex;gap:26px">
+      <div style="width:756px;display:flex;flex-direction:column;gap:12px" id="joblist"></div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:12px">
+        <div class="eyebrow">WHILE YOU WERE AWAY</div>
+        <div class="pnl" style="padding:16px 18px">
+          <div class="mo st" style="font-size:10.5px;letter-spacing:.16em">SINCE 9:12 AM · 5 HOURS</div>
+          <div style="margin-top:14px;display:flex;flex-direction:column;gap:13px">
+            <div style="display:flex;gap:12px">
+              <span class="dot" style="color:var(--armed);margin-top:7px"></span>
+              <div class="pr" style="font-size:14px;color:var(--holo)">Ray from Northside Refrigeration replied about the freezer invoice.</div>
+            </div>
+            <div style="display:flex;gap:12px">
+              <span class="dot" style="color:var(--holo);margin-top:7px"></span>
+              <div class="pr" style="font-size:14px;color:var(--holo)">Spaced-repetition summary finished — 2,400 words, 9 studies.</div>
+            </div>
+            <div style="display:flex;gap:12px">
+              <span class="dot" style="color:var(--holo);margin-top:7px"></span>
+              <div class="pr" style="font-size:14px;color:var(--holo)">Three Campus Creamery orders came in for Saturday. Total 46 scoops.</div>
+            </div>
+            <div style="display:flex;gap:12px">
+              <span class="dot" style="color:var(--steel);margin-top:7px"></span>
+              <div class="pr" style="font-size:14px;color:var(--steel)">Nothing needed you urgently.</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:18px">
+            <span class="btn sm tgt" data-go="inbox" role="button" tabindex="0">OPEN INBOX</span>
+            <span class="btn gh sm tgt" data-go="idle" role="button" tabindex="0">DISMISS</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 29 MUTED ═══════════════════════════════════════════════════════ -->
+<section class="scr full" id="muted">
+  <div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center">
+    <div>
+      <svg width="300" height="300" viewBox="0 0 300 300" id="mutering" style="margin:0 auto" aria-hidden="true"></svg>
+      <div class="cd am" style="font-size:34px;letter-spacing:.4em;margin-top:26px">MIC IS OFF</div>
+      <div class="pr" style="font-size:16px;color:var(--holo);margin-top:16px;max-width:520px;margin-left:auto;margin-right:auto">
+        The microphone is switched off in hardware. Atlas can't hear the wake word or anything else
+        until you turn it back on. Timers and alarms still run.
+      </div>
+      <div class="mo st" style="font-size:11px;letter-spacing:.18em;margin-top:16px">MUTED AT 1:04 PM · BY THE SWITCH ON THE FRAME</div>
+      <div style="display:flex;gap:12px;margin-top:30px;justify-content:center">
+        <span class="btn arm tgt" id="unmute" role="button" tabindex="0" style="min-width:200px">TURN THE MIC BACK ON</span>
+        <span class="btn gh tgt" data-go="timers" role="button" tabindex="0">SEE TIMERS</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 30 OFFLINE / ERROR ═════════════════════════════════════════════ -->
+<section class="scr" id="offline">
+  <div class="pad stg">
+    <div class="hd">
+      <h1>No internet</h1>
+      <span class="sub">SINCE 1:47 PM · 6 MINUTES</span>
+      <span class="sp"></span>
+      <span class="prov toolerror"><span class="t">Tool error</span><span class="n">· network</span></span>
+    </div>
+    <div class="rule"></div>
+    <div style="display:flex;gap:34px;align-items:flex-start">
+      <div style="width:300px;position:relative;flex:none">
+        <svg viewBox="0 0 300 300" width="300" height="300" id="offring" aria-hidden="true"></svg>
+        <div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center">
+          <div style="transform:translateY(48px)">
+            <div class="cd am" style="font-size:16px;letter-spacing:.28em">LINK DOWN</div>
+            <div class="mo st" style="font-size:10.5px;margin-top:8px">WUSTL-SECURE</div>
+          </div>
+        </div>
+      </div>
+      <div style="flex:1">
+        <div class="pr" style="font-size:19px;color:var(--core);font-weight:300;line-height:1.55;max-width:640px">
+          The Wi-Fi is connected but nothing is getting through. Atlas asked the router twice and
+          got no answer, so anything that needs the internet is going to fail right now.
+        </div>
+        <div style="display:flex;gap:14px;margin-top:24px">
+          <div class="pnl" style="flex:1;padding:16px 18px">
+            <div class="eyebrow">STILL WORKS</div>
+            <div style="margin-top:12px;display:flex;flex-direction:column;gap:9px">
+              <div class="mo" style="font-size:12.5px;color:var(--core)">Timers and alarms</div>
+              <div class="mo" style="font-size:12.5px;color:var(--core)">Everything Atlas remembers</div>
+              <div class="mo" style="font-size:12.5px;color:var(--core)">Camera and photos</div>
+              <div class="mo" style="font-size:12.5px;color:var(--core)">Calendar you already have</div>
+            </div>
+          </div>
+          <div class="pnl hot" style="flex:1;padding:16px 18px">
+            <div class="eyebrow" style="color:var(--armed)">WON'T WORK YET</div>
+            <div style="margin-top:12px;display:flex;flex-direction:column;gap:9px">
+              <div class="mo am" style="font-size:12.5px">Weather and research</div>
+              <div class="mo am" style="font-size:12.5px">Email and texts</div>
+              <div class="mo am" style="font-size:12.5px">Answers that need sources</div>
+              <div class="mo am" style="font-size:12.5px">Calendar sync</div>
+            </div>
+          </div>
+        </div>
+        <div class="pnl flat" style="margin-top:18px;padding:16px 18px">
+          <div class="eyebrow">TRY THIS</div>
+          <div class="pr" style="font-size:14.5px;color:var(--holo);margin-top:9px">
+            Re-open the WUSTL-SECURE captive portal on your laptop — the dorm network signs you out
+            every 24 hours and Atlas can't sign in for you. Atlas will retry on its own every
+            30 seconds and tell you the moment it's back.
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:22px">
+          <span class="btn arm tgt" id="offretry" role="button" tabindex="0">RETRY NOW</span>
+          <span class="btn gh tgt" data-go="health" role="button" tabindex="0">CHECK SYSTEM HEALTH</span>
+          <span class="btn gh tgt" data-go="idle" role="button" tabindex="0">DISMISS</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 31 HEALTH ══════════════════════════════════════════════════════ -->
+<section class="scr" id="health">
+  <div class="pad stg">
+    <div class="hd">
+      <h1>System health</h1>
+      <span class="sub">ATLAS MK VII · UP 11 DAYS 4 HOURS</span>
+      <span class="sp"></span>
+      <span class="mo st" style="font-size:11px" id="healthstamp">—</span>
+    </div>
+    <div class="rule"></div>
+    <div class="eyebrow" style="margin-bottom:12px">SERVICES · TAP ONE TO SEE WHAT BREAKS WITHOUT IT</div>
+    <div id="caprow" style="display:flex;gap:11px"></div>
+    <div style="display:flex;gap:14px;margin-top:22px">
+      <div class="pnl" style="flex:1;padding:16px 18px">
+        <div class="eyebrow">HARDWARE</div>
+        <div style="margin-top:12px">
+          <div class="kv"><span class="k">CPU</span><span class="mo" id="hcpu">—</span></div>
+          <div class="kv"><span class="k">Memory</span><span class="mo co">2.8 / 8.0 GB</span></div>
+          <div class="kv"><span class="k">Storage</span><span class="mo co">61 / 256 GB</span></div>
+          <div class="kv"><span class="k">Mic array</span><span class="mo co">4 CH · ALL LIVE</span></div>
+          <div class="kv"><span class="k">Screen</span><span class="mo co">1280 × 800 · 60 HZ</span></div>
+        </div>
+      </div>
+      <div class="pnl" style="flex:1;padding:16px 18px">
+        <div class="eyebrow">VOICE LOOP</div>
+        <div style="margin-top:12px">
+          <div class="kv"><span class="k">Wake word</span><span class="mo co">98.2% LAST 7 DAYS</span></div>
+          <div class="kv"><span class="k">False wakes</span><span class="mo co">3 IN 7 DAYS</span></div>
+          <div class="kv"><span class="k">Heard → replied</span><span class="mo co">1.4 S MEDIAN</span></div>
+          <div class="kv"><span class="k">Transcribe</span><span class="mo co">ON DEVICE</span></div>
+          <div class="kv"><span class="k">Training jobs</span><span class="mo st">PAUSED WHILE YOU TALK</span></div>
+        </div>
+      </div>
+      <div class="pnl" style="flex:1;padding:16px 18px">
+        <div class="eyebrow">HONESTY CHECKS</div>
+        <div style="margin-top:12px">
+          <div class="kv"><span class="k">Answers with a source</span><span class="mo co">87%</span></div>
+          <div class="kv"><span class="k">"No source found"</span><span class="mo am">9%</span></div>
+          <div class="kv"><span class="k">Corrected by you</span><span class="mo co">4 THIS MONTH</span></div>
+          <div class="kv"><span class="k">Memories written</span><span class="mo co">22</span></div>
+          <div class="kv"><span class="k">Memories forgotten</span><span class="mo co">5</span></div>
+        </div>
+      </div>
+    </div>
+    <div id="capdetail" class="pnl" style="margin-top:16px;padding:16px 18px;min-height:96px">
+      <div class="eyebrow" id="capdname">PICK A SERVICE</div>
+      <div class="pr" id="capdtxt" style="font-size:14.5px;color:var(--holo);margin-top:9px">
+        Each ring shows how much of that service is answering right now. Amber means Atlas will tell
+        you it can't do something rather than guess.
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+@keyframes scan{from{transform:translateY(-4px)}to{transform:translateY(562px)}}
+</style>
+
+
+</div></div>
+<script>
+"use strict";
+/* ═══════════════════════════════════════════════════════════════════════
+   ATLAS MK VII — runtime
+   ═══════════════════════════════════════════════════════════════════════ */
+const $=(s,r)=>(r||document).querySelector(s);
+const $$=(s,r)=>Array.from((r||document).querySelectorAll(s));
+const TAU=Math.PI*2;
+const RM=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ── stage fit ────────────────────────────────────────────────────────── */
+const hud=$('#hud');
+function fit(){
+  const s=Math.min(window.innerWidth/1280, window.innerHeight/800);
+  hud.style.transform = s<1 ? 'scale('+s+')' : 'none';
+}
+addEventListener('resize',fit); fit();
+
+/* ── SVG helpers: the reticle grammar ─────────────────────────────────── */
+function arc(cx,cy,r,pct,color,w,extra){
+  const c=TAU*r, on=Math.max(0,Math.min(1,pct))*c;
+  return '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+color+
+    '" stroke-width="'+w+'" stroke-dasharray="'+on.toFixed(2)+' '+(c-on+2).toFixed(2)+
+    '" transform="rotate(-90 '+cx+' '+cy+')" '+(extra||'')+'/>';
+}
+function ring(cx,cy,r,color,w,extra){
+  return '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+color+
+    '" stroke-width="'+(w||1)+'" '+(extra||'')+'/>';
+}
+function ticks(cx,cy,rIn,rOut,n,color,w,major,majorLen){
+  let s='';
+  for(let i=0;i<n;i++){
+    const a=(i/n)*TAU - Math.PI/2;
+    const big = major && i%major===0;
+    const r1 = big ? rIn-(majorLen||6) : rIn;
+    s+='<line x1="'+(cx+Math.cos(a)*r1).toFixed(2)+'" y1="'+(cy+Math.sin(a)*r1).toFixed(2)+
+       '" x2="'+(cx+Math.cos(a)*rOut).toFixed(2)+'" y2="'+(cy+Math.sin(a)*rOut).toFixed(2)+
+       '" stroke="'+color+'" stroke-width="'+(big?w*1.6:w)+'" opacity="'+(big?'.95':'.45')+'"/>';
+  }
+  return s;
+}
+function segRing(cx,cy,r,n,gap,color,w,extra){
+  const c=TAU*r, seg=c/n;
+  return '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+color+
+    '" stroke-width="'+w+'" stroke-dasharray="'+(seg-gap).toFixed(2)+' '+gap+'" '+(extra||'')+'/>';
+}
+function bracketBox(x,y,w,h,color,L){
+  L=L||12;
+  const p=(a,b,c,d)=>'<path d="'+a+'" fill="none" stroke="'+color+'" stroke-width="1.2"/>';
+  return p('M'+x+' '+(y+L)+'V'+y+'H'+(x+L))+p('M'+(x+w-L)+' '+y+'H'+(x+w)+'V'+(y+L))+
+         p('M'+(x+w)+' '+(y+h-L)+'V'+(y+h)+'H'+(x+w-L))+p('M'+(x+L)+' '+(y+h)+'H'+x+'V'+(y+h-L));
+}
+const C={core:'#DCF2FF',holo:'#7FD4FA',mid:'#4FB4E8',deep:'#2E9FDF',armed:'#FFA02E',
+         steel:'#7B93A3',steel2:'#3E4E5A',track:'rgba(46,159,223,.20)',faint:'rgba(46,159,223,.10)'};
+
+/* ── lock-on brackets on every touch target ───────────────────────────── */
+function addLocks(root){
+  $$('.tgt',root||document).forEach(t=>{
+    if(t.querySelector(':scope > .lk')) return;
+    const i=document.createElement('i'); i.className='lk';
+    i.innerHTML='<b></b><b></b><b></b><b></b>';
+    t.appendChild(i);
+  });
+}
+
+/* ── screen registry ──────────────────────────────────────────────────── */
+const SCREENS=[
+ ['STATES',[['boot','Boot'],['idle','Idle'],['sleep','Asleep'],['wake','Wake'],
+            ['listen','Listening'],['think','Thinking'],['speak','Speaking']]],
+ ['KNOWLEDGE',[['answer','Quick answer'],['research','Research running'],
+            ['results','Research results'],['article','Article'],['thread','Follow-up']]],
+ ['WEATHER',[['weather','Weather']]],
+ ['TIME',[['timers','Timers'],['alarms','Alarms'],['alarmedit','Alarm editor']]],
+ ['CALENDAR',[['agenda','Agenda'],['eventedit','Event editor'],['eventconfirm','Confirm event']]],
+ ['PEOPLE & MAIL',[['people','Which Carlos'],['sms','Text message'],['inbox','Inbox'],
+            ['email','Email'],['emailsend','Send email']]],
+ ['VISION',[['camera','Camera'],['photos','Photos']]],
+ ['MIND',[['memory','Memory'],['jobs','Jobs']]],
+ ['SYSTEM',[['muted','Muted'],['offline','Offline'],['health','Health']]]
+];
+const META={}; let n=0;
+SCREENS.forEach(g=>g[1].forEach(s=>{n++;META[s[0]]={n:n,name:s[1],group:g[0]};}));
+const TOTAL=n;
+
+let cur='boot';
+let flowT=[];
+function later(fn,ms){const t=setTimeout(fn,ms);flowT.push(t);return t;}
+function clearFlow(){flowT.forEach(clearTimeout);flowT=[];}
+
+const onEnter={}, onLeave={};
+
+function go(id){
+  if(!META[id]) return;
+  if(onLeave[cur]) onLeave[cur]();
+  clearFlow();
+  const prev=$('#'+cur); if(prev) prev.classList.remove('on');
+  cur=id;
+  const s=$('#'+id); s.classList.add('on');
+  document.body.classList.toggle('bare', id==='boot');
+  document.body.classList.toggle('dimchrome', id==='sleep');
+  $('#degn').textContent='S-'+String(META[id].n).padStart(2,'0');
+  $('#degt').textContent=META[id].name.toUpperCase();
+  hud.classList.remove('retask'); void hud.offsetWidth; hud.classList.add('retask');
+  setTimeout(()=>hud.classList.remove('retask'),420);
+  setState(id);
+  if($('#nav').classList.contains('on')) closeNav();
+  markNav();
+  if(onEnter[id]) onEnter[id]();
+  addLocks(s);
+}
+function setState(id){
+  const p=$('#statepill');
+  const map={listen:['LISTENING','arm'],wake:['WAKE','arm'],think:['THINKING','arm'],
+    speak:['SPEAKING','arm'],muted:['MUTED','arm'],offline:['OFFLINE','arm'],
+    sleep:['ASLEEP','dim'],boot:['STARTING','arm'],camera:['CAMERA ON','arm'],
+    research:['RESEARCHING','arm']};
+  const m=map[id]||['IDLE','ok'];
+  p.textContent=m[0];
+  p.style.color = m[1]==='arm'?'var(--armed)':(m[1]==='dim'?'var(--steel)':'var(--holo)');
+  p.style.borderColor = m[1]==='arm'?'rgba(255,160,46,.5)':'var(--line)';
+  p.style.textShadow = m[1]==='arm'?'var(--gl-a)':'none';
+}
+
+/* ── INDEX navigator ──────────────────────────────────────────────────── */
+/* five balanced columns so every one of the 31 sits above the fold */
+const NAVCOLS=[['STATES'],['KNOWLEDGE','WEATHER'],['TIME','CALENDAR'],
+               ['PEOPLE & MAIL','VISION'],['MIND','SYSTEM']];
+(function buildNav(){
+  const g=$('#navgrid');
+  g.innerHTML=NAVCOLS.map(col=>'<div class="navcol">'+col.map(name=>{
+    const grp=SCREENS.find(s=>s[0]===name);
+    return '<div class="navgroup"><span class="eyebrow">'+name+'</span><span class="ln"></span></div>'+
+      grp[1].map(s=>'<div class="navitem tgt" data-go="'+s[0]+'" role="button" tabindex="0">'+
+        '<span class="nn mo">'+String(META[s[0]].n).padStart(2,'0')+'</span>'+
+        '<span class="nt">'+s[1]+'</span></div>').join('');
+  }).join('')+'</div>').join('');
+  addLocks(g);
+})();
+function markNav(){
+  $$('#navgrid .navitem').forEach(i=>i.classList.toggle('cur', i.dataset.go===cur));
+}
+function openNav(){ $('#nav').classList.add('on'); markNav(); }
+function closeNav(){ $('#nav').classList.remove('on'); }
+$('#indexbtn').addEventListener('click',openNav);
+$('#navclose').addEventListener('click',closeNav);
+
+/* delegated navigation + keyboard activation */
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-go]');
+  if(t){ e.preventDefault(); go(t.dataset.go); }
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){ $('#nav').classList.contains('on')?closeNav():openNav(); return; }
+  if(e.key==='i'||e.key==='I'){ if(e.target.tagName!=='INPUT'){ openNav(); } return; }
+  const r=e.target.getAttribute&&e.target.getAttribute('role');
+  if((e.key==='Enter'||e.key===' ')&&(r==='button'||r==='switch')){
+    e.preventDefault(); e.target.click();
+  }
+});
+
+/* ═══ CLOCK ══════════════════════════════════════════════════════════ */
+const DAYS=['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
+const MON=['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+function pad(v){return String(v).padStart(2,'0');}
+function h12(d){const h=d.getHours()%12;return h===0?12:h;}
+function clockStr(d){return h12(d)+':'+pad(d.getMinutes());}
+
+/* idle ring stack — every ring is a gauge */
+(function idleRings(){
+  const cx=260,cy=260;
+  let h='';
+  h+='<g>'+ticks(cx,cy,242,250,60,C.deep,1.2,5,7)+'</g>';
+  h+=ring(cx,cy,232,C.track,1);
+  h+=arc(cx,cy,232,0,C.holo,2,'id="idleDayArc" stroke-linecap="butt" opacity=".8"');
+  h+=ring(cx,cy,214,'rgba(123,147,163,.22)',1,'stroke-dasharray="2 10"');
+  h+='<g class="spinr" style="transform-origin:260px 260px">'+segRing(cx,cy,168,8,26,C.deep,3)+'</g>';
+  h+='<g class="spin" style="transform-origin:260px 260px">'+segRing(cx,cy,156,3,120,'rgba(127,212,250,.5)',1.5)+'</g>';
+  h+=ring(cx,cy,142,'rgba(46,159,223,.28)',1);
+  h+='<g id="idleSec"><rect x="'+(cx-1.5)+'" y="'+(cy-252)+'" width="3" height="14" fill="'+C.armed+'"/>'+
+     '<circle cx="'+cx+'" cy="'+(cy-258)+'" r="3" fill="'+C.armed+'"/></g>';
+  $('#idlerings').innerHTML=h;
+})();
+
+const dayArcLen=TAU*232;
+function tickClock(){
+  const d=new Date();
+  const t=clockStr(d), mer=d.getHours()<12?'AM':'PM';
+  $('#rtclock').textContent=t+':'+pad(d.getSeconds())+' '+mer;
+  $('#clock').textContent=t;
+  $('#clocksec').textContent=mer+' · SEC '+pad(d.getSeconds());
+  $('#clockdate').textContent=DAYS[d.getDay()]+' · '+d.getDate()+' '+MON[d.getMonth()];
+  $('#sleepclock').textContent=t;
+  const dayPct=(d.getHours()*3600+d.getMinutes()*60+d.getSeconds())/86400;
+  const a=$('#idleDayArc');
+  if(a){const on=dayPct*dayArcLen; a.setAttribute('stroke-dasharray',on.toFixed(1)+' '+(dayArcLen-on+2).toFixed(1));}
+  const sg=$('#idleSec');
+  if(sg) sg.setAttribute('transform','rotate('+(d.getSeconds()*6)+' 260 260)');
+  const sunset=19*60+56, nowm=d.getHours()*60+d.getMinutes();
+  const left=sunset-nowm;
+  const dl=$('#wxdaylight');
+  if(dl) dl.textContent = left>0 ? Math.floor(left/60)+'H '+pad(left%60)+'M' : 'AFTER SUNSET';
+  const hs=$('#healthstamp'); if(hs) hs.textContent='CHECKED '+t+':'+pad(d.getSeconds());
+  const cpu=51+Math.round(Math.sin(Date.now()/9000)*3);
+  $('#rttemp').textContent='CPU '+cpu+'°C';
+  const hc=$('#hcpu'); if(hc) hc.textContent=cpu+'°C · 18% LOAD';
+}
+setInterval(tickClock,500); tickClock();
+
+/* ═══ 01 BOOT ════════════════════════════════════════════════════════ */
+const BOOTROWS=[
+  ['01','Power rails and thermals','NOMINAL','ok'],
+  ['02','Microphone array · 4 channels','ALL LIVE','ok'],
+  ['03','Wake word model loaded','98.2% · 7 DAY','ok'],
+  ['04','Speech in · on device','READY','ok'],
+  ['05','Speech out · voice "Fen"','READY','ok'],
+  ['06','Calendars · WashU, Creamery, Lacrosse','3 SYNCED','ok'],
+  ['07','Mail · rukinjames@gmail.com','3 UNREAD','ok'],
+  ['08','Memory store · 22 entries','LOADED','ok'],
+  ['09','Weather · NWS St. Louis','6 MIN OLD','warn'],
+  ['10','Camera · privacy shutter','CLOSED','ok']
+];
+function bootCore(){
+  const cx=160,cy=160;
+  let h=ticks(cx,cy,142,152,48,C.deep,1.2,6,6);
+  h+=ring(cx,cy,130,C.track,1);
+  h+=arc(cx,cy,130,0,C.core,3,'id="bootArc"');
+  h+='<g class="spinr" style="transform-origin:160px 160px">'+segRing(cx,cy,104,6,30,C.deep,2.5)+'</g>';
+  h+='<g class="spin" style="transform-origin:160px 160px">'+segRing(cx,cy,88,4,60,'rgba(127,212,250,.45)',1.5)+'</g>';
+  h+=ring(cx,cy,66,'rgba(46,159,223,.3)',1);
+  h+='<text x="160" y="153" text-anchor="middle" fill="'+C.core+'" font-size="30" font-family="monospace" id="bootPct">0%</text>';
+  h+='<text x="160" y="176" text-anchor="middle" fill="'+C.steel+'" font-size="9.5" letter-spacing="3" font-family="monospace">SYSTEMS</text>';
+  $('#bootcore').innerHTML='<svg viewBox="0 0 320 320" width="320" height="320">'+h+'</svg>';
+}
+let bootRunning=false;
+onEnter.boot=function(){
+  bootCore(); $('#bootlist').innerHTML=''; bootRunning=true;
+  const arcEl=$('#bootArc'), pctEl=$('#bootPct'), len=TAU*130;
+  const step=RM?40:190;
+  BOOTROWS.forEach((r,i)=>{
+    later(()=>{
+      if(!bootRunning) return;
+      const div=document.createElement('div');
+      div.className='bootrow mo '+r[3];
+      div.style.animationDelay='0s';
+      div.innerHTML='<span class="bn">'+r[0]+'</span><span class="bl">'+r[1]+
+                    '</span><span class="bs">'+r[2]+'</span>';
+      $('#bootlist').appendChild(div);
+      const p=(i+1)/BOOTROWS.length, on=p*len;
+      arcEl.setAttribute('stroke-dasharray',on.toFixed(1)+' '+(len-on+2).toFixed(1));
+      pctEl.textContent=Math.round(p*100)+'%';
+    }, 260+i*step);
+  });
+  later(()=>{ if(bootRunning) go('idle'); }, 260+BOOTROWS.length*step+700);
+};
+onLeave.boot=function(){bootRunning=false;};
+$('#bootskip').addEventListener('click',()=>go('idle'));
+
+/* ═══ 04–07 VOICE FLOW ═══════════════════════════════════════════════ */
+/* wake */
+function wakeCore(){
+  const cx=170,cy=170;
+  let h=ticks(cx,cy,148,160,72,C.deep,1,9,8);
+  h+=ring(cx,cy,136,'rgba(255,160,46,.35)',1);
+  h+=arc(cx,cy,136,.94,C.armed,3);
+  h+='<g class="spinr" style="transform-origin:170px 170px">'+segRing(cx,cy,110,5,34,'rgba(255,160,46,.6)',2.5)+'</g>';
+  h+=ring(cx,cy,86,'rgba(255,160,46,.25)',1);
+  h+='<circle cx="170" cy="170" r="46" fill="rgba(255,160,46,.10)" stroke="'+C.armed+'" stroke-width="1.5"/>';
+  h+='<path d="M170 150v22M162 158v6M178 158v6" stroke="'+C.armed+'" stroke-width="2.5" stroke-linecap="round"/>';
+  h+='<path d="M156 172a14 14 0 0 0 28 0" fill="none" stroke="'+C.armed+'" stroke-width="2" stroke-linecap="round"/>';
+  h+='<path d="M170 186v8" stroke="'+C.armed+'" stroke-width="2.5" stroke-linecap="round"/>';
+  return '<svg viewBox="0 0 340 340" width="340" height="340">'+h+'</svg>';
+}
+onEnter.wake=function(){
+  $('#wakecore').innerHTML=wakeCore();
+  later(()=>go('listen'), RM?400:1000);
+};
+
+/* listening: waveform wraps the circle */
+const WBARS=76, amps=new Float32Array(WBARS);
+let wfRAF=0, speakEnergy=0;
+function buildWave(){
+  let h=ring(170,170,150,'rgba(46,159,223,.18)',1,'stroke-dasharray="2 8"');
+  h+='<g class="spin" style="transform-origin:170px 170px">'+segRing(170,170,158,4,140,'rgba(127,212,250,.4)',1.5)+'</g>';
+  h+=ring(170,170,96,'rgba(46,159,223,.3)',1);
+  h+='<path id="wavepath" fill="none" stroke="'+C.holo+'" stroke-width="2.2" stroke-linecap="round"/>';
+  h+='<path id="wavepath2" fill="none" stroke="'+C.armed+'" stroke-width="2.2" stroke-linecap="round" opacity=".85"/>';
+  $('#waveform').innerHTML=h;
+}
+function waveFrame(){
+  const t=Date.now()/1000;
+  let d1='',d2='';
+  for(let i=0;i<WBARS;i++){
+    const a=(i/WBARS)*TAU-Math.PI/2;
+    const noise=Math.sin(t*7+i*0.7)*0.5+Math.sin(t*13.3+i*1.9)*0.3+Math.sin(t*3.1+i*0.31)*0.2;
+    const target=(0.18+Math.abs(noise)*0.82)*speakEnergy;
+    amps[i]+= (target-amps[i])*0.35;
+    const len=6+amps[i]*46;
+    const r0=102, r1=r0+len;
+    const x0=170+Math.cos(a)*r0, y0=170+Math.sin(a)*r0;
+    const x1=170+Math.cos(a)*r1, y1=170+Math.sin(a)*r1;
+    const seg='M'+x0.toFixed(1)+' '+y0.toFixed(1)+'L'+x1.toFixed(1)+' '+y1.toFixed(1);
+    if(amps[i]>0.62) d2+=seg; else d1+=seg;
+  }
+  const p1=$('#wavepath'), p2=$('#wavepath2');
+  if(p1){p1.setAttribute('d',d1); p2.setAttribute('d',d2);}
+  const lvl=$('#listenlvl');
+  if(lvl) lvl.textContent=(-52+Math.round(speakEnergy*34))+' dBFS';
+  wfRAF=requestAnimationFrame(waveFrame);
+}
+const HEARD="do i have anything before noon tomorrow — and will i need an umbrella";
+let typer=null;
+function typeInto(node,text,ms,done){
+  if(typer) clearInterval(typer);
+  let i=0;
+  node.innerHTML='<span class="tw"></span><span class="caret"></span>';
+  const w=node.querySelector('.tw');
+  typer=setInterval(()=>{
+    i++;
+    w.textContent=text.slice(0,i);
+    speakEnergy = 0.35+Math.random()*0.65;
+    if(i>=text.length){
+      clearInterval(typer); typer=null; speakEnergy=0.12;
+      const c=node.querySelector('.caret'); if(c) c.remove();
+      if(done) done();
+    }
+  }, ms);
+}
+onEnter.listen=function(){
+  buildWave(); speakEnergy=.5;
+  if(!RM && !wfRAF) wfRAF=requestAnimationFrame(waveFrame);
+  typeInto($('#listentxt'), HEARD, RM?8:42, ()=>later(()=>go('think'), 520));
+};
+onLeave.listen=function(){
+  if(wfRAF){cancelAnimationFrame(wfRAF); wfRAF=0;}
+  if(typer){clearInterval(typer); typer=null;}
+};
+$('#listenskip').addEventListener('click',()=>{ if(typer){clearInterval(typer);typer=null;} go('think'); });
+
+/* thinking: counter-rotating rings */
+const THINKSTEPS=[
+  ['Working out what you asked for','PARSED'],
+  ['Reading tomorrow on three calendars','2 EVENTS'],
+  ['Checking the hourly forecast','NWS LSX'],
+  ['Remembering how you get to campus','1 MEMORY'],
+  ['Writing the answer','—']
+];
+onEnter.think=function(){
+  const cx=170,cy=170;
+  let h=ticks(cx,cy,150,160,60,'rgba(46,159,223,.5)',1,5,7);
+  h+='<g class="spin" style="transform-origin:170px 170px">'+segRing(cx,cy,136,3,150,C.holo,2.5)+'</g>';
+  h+='<g class="spinr" style="transform-origin:170px 170px">'+segRing(cx,cy,116,4,90,C.deep,3)+'</g>';
+  h+='<g class="spin" style="transform-origin:170px 170px">'+segRing(cx,cy,96,2,180,'rgba(255,160,46,.75)',2)+'</g>';
+  h+=ring(cx,cy,74,'rgba(46,159,223,.3)',1);
+  h+='<circle cx="170" cy="170" r="7" fill="'+C.core+'"/>';
+  $('#thinkcore').innerHTML='<svg viewBox="0 0 340 340" width="340" height="340">'+h+'</svg>';
+  const box=$('#thinksteps'); box.innerHTML='';
+  THINKSTEPS.forEach((s,i)=>{
+    later(()=>{
+      const d=document.createElement('div');
+      d.className='mo'; d.style.cssText='font-size:12px;letter-spacing:.1em;display:flex;gap:14px;align-items:center;width:520px;animation:stgin .25s ease backwards';
+      d.innerHTML='<span class="dot" style="color:'+(i===THINKSTEPS.length-1?'var(--armed)':'var(--holo)')+'"></span>'+
+        '<span style="flex:1;text-align:left;color:var(--holo)">'+s[0]+'</span>'+
+        '<span class="st" style="font-size:10.5px">'+s[1]+'</span>';
+      box.appendChild(d);
+    }, 120+i*(RM?30:230));
+  });
+  later(()=>go('speak'), 120+THINKSTEPS.length*(RM?30:230)+420);
+};
+
+/* speaking */
+const SPOKEN="Nothing before noon. Your first thing tomorrow is Chem two sixty-one lab at two thirty in Louderman. Rain moves in around eleven and holds until about four, so take the umbrella if you're leaving early for the creamery run.";
+onEnter.speak=function(){
+  $('#speakprov').innerHTML='<span class="prov sourced"><span class="t">Sourced</span><span class="n">· 3</span></span>';
+  $('#speakactions').style.opacity='0';
+  typeInto($('#speaktxt'), SPOKEN, RM?4:22, ()=>{ $('#speakactions').style.opacity='1'; });
+};
+onLeave.speak=function(){ if(typer){clearInterval(typer);typer=null;} };
+
+/* wake entry points */
+$('#sleeptap').addEventListener('click',()=>go('wake'));
+$('#idlecore').addEventListener('click',()=>go('wake'));
+$('#idlecore').style.cursor='pointer';
+$('#idlecore').classList.add('tgt');
+$('#idlecore').setAttribute('role','button');
+$('#idlecore').setAttribute('tabindex','0');
+$('#idlecore').setAttribute('aria-label','Wake Atlas');
+
+/* ═══ 09 RESEARCH ════════════════════════════════════════════════════ */
+const RESSOURCES=[
+  ['Square · pricing for retail','squareup.com','READ'],
+  ['Toast · POS pricing 2026','toasttab.com','READ'],
+  ['Clover Station Duo pricing','clover.com','READ'],
+  ['Low-ticket card rates explained','merchantmaverick.com','READ'],
+  ['r/smallbusiness — ice cream cart POS','reddit.com','READ'],
+  ['Shopify POS Lite vs Pro','shopify.com','READ'],
+  ['NACS: tipping prompts and average tip','nacsonline.com','READ'],
+  ['Interchange plus vs flat rate','stripe.com','READING'],
+  ['Square offline payments limits','squareup.com','READING'],
+  ['SumUp Solo — Europe/US availability','sumup.com','QUEUED'],
+  ['Toast inventory for 2-person carts','toasttab.com','QUEUED'],
+  ['Missouri sales tax on prepared food','mo.gov','QUEUED'],
+  ['Reviews: Clover reliability outdoors','trustpilot.com','QUEUED'],
+  ['Card reader battery in 90° heat','merchantmaverick.com','QUEUED']
+];
+let resTimer=null, resProg=0;
+onEnter.research=function(){
+  const cx=160,cy=160;
+  let h=ticks(cx,cy,146,156,56,'rgba(46,159,223,.45)',1,7,6);
+  h+=ring(cx,cy,132,C.track,1);
+  h+=arc(cx,cy,132,0,C.holo,3.5,'id="resArc"');
+  h+='<g class="spinr" style="transform-origin:160px 160px">'+segRing(cx,cy,112,6,28,'rgba(255,160,46,.55)',2)+'</g>';
+  h+=ring(cx,cy,96,'rgba(46,159,223,.25)',1);
+  $('#resring').innerHTML=h;
+  const d=new Date(Date.now()-97000);
+  $('#resstart').textContent=clockStr(d)+' '+(d.getHours()<12?'AM':'PM');
+  resProg=0; renderRes();
+  if(resTimer) clearInterval(resTimer);
+  resTimer=setInterval(()=>{
+    resProg=Math.min(1,resProg+0.014);
+    renderRes();
+    if(resProg>=1){clearInterval(resTimer);resTimer=null;later(()=>go('results'),700);}
+  },RM?30:160);
+};
+onLeave.research=function(){ if(resTimer){clearInterval(resTimer);resTimer=null;} };
+function renderRes(){
+  const len=TAU*132, on=resProg*len;
+  const a=$('#resArc'); if(a) a.setAttribute('stroke-dasharray',on.toFixed(1)+' '+(len-on+2).toFixed(1));
+  $('#respct').textContent=Math.round(resProg*100)+'%';
+  const read=Math.round(resProg*14);
+  $('#resread').textContent=read;
+  const el=Math.round(97+resProg*160);
+  $('#reselapsed').textContent=pad(Math.floor(el/60))+':'+pad(el%60);
+  let h='';
+  RESSOURCES.forEach((s,i)=>{
+    let st = i<read ? 'READ' : (i<read+2 ? 'READING' : 'QUEUED');
+    const col = st==='READ' ? C.core : (st==='READING' ? C.armed : C.steel2);
+    h+='<div style="display:flex;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid var(--line-2)">'+
+       '<span style="width:7px;height:7px;flex:none;background:'+col+';border-radius:50%'+
+       (st==='READING'?';box-shadow:0 0 8px '+C.armed:'')+'"></span>'+
+       '<span class="mo" style="flex:1;font-size:11.5px;color:'+(st==='QUEUED'?'var(--steel)':'var(--holo)')+'">'+s[0]+'</span>'+
+       '<span class="mo st" style="font-size:10px;width:180px">'+s[1]+'</span>'+
+       '<span class="mo" style="font-size:9.5px;letter-spacing:.16em;width:66px;text-align:right;color:'+
+       (st==='READING'?'var(--armed)':(st==='READ'?'var(--core)':'var(--steel)'))+'">'+st+'</span></div>';
+  });
+  $('#reslist').innerHTML=h;
+}
+$('#resopen').addEventListener('click',()=>go('results'));
+
+/* ═══ 10 RESULTS ═════════════════════════════════════════════════════ */
+const ARTICLES=[
+ {t:'What low-ticket sellers actually pay per swipe',s:'merchantmaverick.com',g:'analysis',d:'6 AUG 2026',rel:.94,
+  x:'At a $4.75 average ticket the fixed ten-cent component is 2.1% on its own — bigger than most of the percentage rate people compare.'},
+ {t:'Square pricing for retail and mobile carts',s:'squareup.com',g:'vendor',d:'CURRENT',rel:.88,
+  x:'2.6% + 10¢ tapped or swiped. Reader is $59. No monthly fee on the free plan; inventory is included.'},
+ {t:'Toast POS pricing 2026',s:'toasttab.com',g:'vendor',d:'CURRENT',rel:.71,
+  x:'Starter Kit is $0 up front with a 3.09% + 15¢ rate, or $69/month with lower processing. Built for kitchens, not carts.'},
+ {t:'Clover Station Duo — what it costs outdoors',s:'clover.com',g:'vendor',d:'CURRENT',rel:.62,
+  x:'Station Duo is $1,799 or $160/month. Needs mains power; the Flex handheld is the only realistic cart option.'},
+ {t:'r/smallbusiness: ice cream cart POS, one year in',s:'reddit.com',g:'forum',d:'22 JUL 2026',rel:.83,
+  x:'"Square Reader died twice in July heat. Keep it in the shade and a cooler bag between rushes and it is fine."'},
+ {t:'Does the tipping prompt actually raise tips?',s:'nacsonline.com',g:'analysis',d:'MAY 2026',rel:.77,
+  x:'On-screen prompts lifted average tip from 4% to 11% of ticket in quick-serve. Customers tipped less when prompted for a third time in a week.'},
+ {t:'Square offline payments — the 24-hour rule',s:'squareup.com',g:'vendor',d:'CURRENT',rel:.80,
+  x:'Offline mode holds cards for up to 24 hours, capped at $10,000. Declines after the fact are your loss, not Square’s.'},
+ {t:'Clover reliability in outdoor use — 214 reviews',s:'trustpilot.com',g:'reviews',d:'AUG 2026',rel:.55,
+  x:'3.1 of 5 across 214 reviews. Recurring theme: the Flex loses cellular at events and falls back to Wi-Fi it cannot reach.'}
+];
+const TABS=[['all','All sources',8],['vendor','Vendor pages',4],['forum','Operators',1],['analysis','Analysis',2],['reviews','Reviews',1]];
+let resTab='all';
+function renderTabs(){
+  $('#restabs').innerHTML=TABS.map(t=>
+    '<div class="tab tgt'+(t[0]===resTab?' on':'')+'" data-tab="'+t[0]+'" role="button" tabindex="0">'+
+    '<span class="tn">'+t[1]+'</span><span class="tc">'+t[2]+'</span></div>').join('');
+  addLocks($('#restabs'));
+}
+function relRing(pct){
+  return '<svg width="42" height="42" viewBox="0 0 42 42">'+ring(21,21,17,C.track,1.5)+
+    arc(21,21,17,pct,pct>.8?C.core:C.holo,2.5)+
+    '<text x="21" y="25" text-anchor="middle" fill="'+(pct>.8?C.core:C.holo)+'" font-size="10" font-family="monospace">'+
+    Math.round(pct*100)+'</text></svg>';
+}
+function renderCards(){
+  const list=ARTICLES.filter(a=>resTab==='all'||a.g===resTab);
+  $('#rescards').innerHTML=list.map((a,i)=>
+   '<div class="pnl tgt" data-art="'+ARTICLES.indexOf(a)+'" role="button" tabindex="0" style="display:block;padding:15px 17px;cursor:pointer">'+
+   '<div style="display:flex;gap:14px;align-items:flex-start">'+
+     '<div style="flex:1">'+
+       '<div class="cd" style="font-size:15px;letter-spacing:.09em;color:var(--core);line-height:1.35">'+a.t+'</div>'+
+       '<div class="mo st" style="font-size:10px;margin-top:7px;letter-spacing:.14em">'+a.s+' · '+a.d+'</div>'+
+     '</div>'+relRing(a.rel)+
+   '</div>'+
+   '<div class="pr" style="font-size:13px;color:var(--holo);margin-top:11px;opacity:.9">'+a.x+'</div>'+
+   '</div>').join('');
+  addLocks($('#rescards'));
+}
+onEnter.results=function(){renderTabs();renderCards();};
+$('#restabs').addEventListener('click',e=>{
+  const t=e.target.closest('[data-tab]'); if(!t)return;
+  resTab=t.dataset.tab; renderTabs(); renderCards();
+});
+$('#rescards').addEventListener('click',e=>{
+  const c=e.target.closest('[data-art]'); if(!c)return;
+  openArticle(+c.dataset.art);
+});
+
+/* ═══ 11 ARTICLE ═════════════════════════════════════════════════════ */
+let artIdx=0;
+const ARTBODY={
+ 0:[['','A five-dollar scoop is not a five-dollar transaction. Every card network charges a fixed component per authorisation, and at low tickets that fixed component swamps the percentage everyone quotes at you.'],
+    ['THE ARITHMETIC','Take a $4.75 ticket on a 2.6% + 10¢ plan. The percentage is 12.4¢ and the fixed fee is 10¢, so you pay 22.4¢ — an effective rate of 4.7%, not 2.6%. On a $40 restaurant check the same plan works out to 2.85%.'],
+    ['WHAT TO DO ABOUT IT','Three things move the number: raise the average ticket, get customers onto a plan with a smaller fixed component, or take more cash. Bundling — two scoops and a topping as one order — is usually the easiest of the three, and it does not require changing anything about your processor.'],
+    ['WHERE FLAT RATE STILL WINS','Interchange-plus looks cheaper on paper for low tickets, but the monthly minimums and statement fees on those plans usually cost a cart more than they save. Below roughly $6,000 a month in card volume, flat rate is still the right answer.'],
+    ['','Run your own numbers before switching. The one figure that matters is total fees divided by total card sales for a full month — not the rate on the marketing page.']],
+ 1:[['','Square publishes one rate for in-person card payments and does not negotiate below a certain volume.'],
+    ['IN PERSON','2.6% + 10¢ for tapped, dipped and swiped cards. Manually keyed cards are 3.5% + 15¢.'],
+    ['HARDWARE','The contactless and chip reader is $59 and pairs to a phone. The Square Stand is $149 and needs an iPad. Terminal, the all-in-one handheld with a printer, is $299.'],
+    ['WHAT IS INCLUDED','Item library, inventory counts, basic reporting and one location on the free plan. Team management with permissions is $35 a month per location.']],
+ default:[['','Atlas kept the parts of this page that answered your question and dropped the navigation, the cookie banner and the newsletter block.'],
+    ['WHAT IT SAYS','The figures pulled into the panel on the right are the ones Atlas used when it wrote the summary. Tap any of them to see the sentence they came from.'],
+    ['WHY IT WAS RANKED HERE','Relevance is how closely the page answers the question you asked, not how popular it is. A forum post from someone running the same kind of cart can outrank a vendor page.']]
+};
+const ARTFIGS={
+ 0:[['Average ticket','$4.75'],['Effective rate','4.7%'],['Quoted rate','2.6% + 10¢'],['Break-even ticket','$11.20']],
+ 1:[['In person','2.6% + 10¢'],['Reader','$59'],['Monthly','$0'],['Keyed in','3.5% + 15¢']],
+ default:[['Relevance','—'],['Read time','2 min'],['Pulled by Atlas','4 figures']]
+};
+function openArticle(i){
+  artIdx=i; go('article');
+}
+onEnter.article=function(){
+  const a=ARTICLES[artIdx];
+  $('#arttitle').textContent=a.t;
+  const body=ARTBODY[artIdx]||ARTBODY.default;
+  $('#artbody').innerHTML=
+    '<div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">'+
+    '<span class="mo st" style="font-size:11px;letter-spacing:.16em">'+a.s+' · '+a.d+'</span>'+
+    '<span style="flex:1;height:1px;background:var(--line-2)"></span>'+
+    '<span class="prov sourced"><span class="t">Sourced</span><span class="n">· full page</span></span></div>'+
+    body.map(p=>(p[0]?'<div class="eyebrow" style="margin:26px 0 9px">'+p[0]+'</div>':'')+
+      '<p class="pr" style="font-size:15.5px;color:var(--holo);margin-bottom:14px">'+p[1]+'</p>').join('')+
+    '<div class="pnl flat" style="padding:14px 16px;margin-top:24px">'+
+    '<div class="eyebrow">HOW ATLAS USED THIS</div>'+
+    '<div class="pr" style="font-size:13.5px;color:var(--holo);margin-top:8px">'+
+    'This page supplied the effective-rate figure in the summary. It disagrees with the vendor pages on hardware cost, and Atlas kept the vendor number.</div></div>';
+  $('#artbody').scrollTop=0;
+  const figs=ARTFIGS[artIdx]||ARTFIGS.default;
+  $('#artfigs').innerHTML=figs.map(f=>
+    '<div class="pnl" style="padding:12px 14px"><div class="eyebrow">'+f[0]+'</div>'+
+    '<div class="mo co" style="font-size:21px;margin-top:5px">'+f[1]+'</div></div>').join('')+
+    '<div style="margin-top:6px">'+relRing(a.rel)+'</div>';
+};
+
+/* ═══ 12 THREAD ══════════════════════════════════════════════════════ */
+const THREAD=[
+ {who:'you',t:'Which one should I actually use for the cart?'},
+ {who:'atlas',t:'Square. At your ticket size the fixed fee is what hurts, and Square has the smallest one at ten cents with no monthly fee. Toast is built for kitchens and Clover needs power you will not have on Mudd Field.',p:['sourced','Sourced','· 4']}
+];
+const CANNED=[
+ {k:['tip','tipping'],t:'Square and Toast both put a fifteen, twenty, twenty-five prompt on the customer screen. Toast lets you turn tipping off for specific items, which matters for the free sample cups. Square does not.',p:['sourced','Sourced','· 2']},
+ {k:['cheap','cost','price','money'],t:'For two people and one reader: Square. Nothing monthly, fifty-nine dollars for the reader, 2.6% plus ten cents. Toast is sixty-nine a month before hardware, so it only wins above about four thousand dollars a month in card volume.',p:['sourced','Sourced','· 3']},
+ {k:['offline','wifi','wi-fi','internet','signal'],t:'Square holds offline card payments for up to twenty-four hours, capped at ten thousand dollars, and any decline afterwards is your loss. Toast queues them too. Clover needs a live connection.',p:['sourced','Sourced','· 2']},
+ {k:['heat','hot','weather','outside'],t:'One operator on r/smallbusiness had a Square Reader fail twice in July heat and fixed it by keeping it in a cooler bag between rushes. That is one person, not a study — I would not treat it as settled.',p:['sourced','Sourced','· 1']},
+ {k:['tax','sales tax'],t:'Missouri taxes prepared food at the full rate, and St. Louis City adds its own. Square and Toast both handle it if you set the location correctly; I did not find a page confirming Clover does it for mobile carts.',p:['nosource','No source found','· Clover']},
+ {k:['inventory','stock'],t:'Square includes item-level counts on the free plan and will email you at a low-stock threshold. Toast inventory is a paid add-on. For twelve flavours either is more than you need.',p:['sourced','Sourced','· 2']}
+];
+const FALLBACK={t:'I do not have a source for that. I can run a proper search and come back with one — it takes about four minutes.',p:['nosource','No source found','']};
+const CHIPS=['What about tipping?','Cheapest for two people?','Does it work without Wi-Fi?','Will it survive the heat?','What about sales tax?'];
+function renderThread(){
+  /* spacer keeps the conversation resting on the input, and collapses once it overflows */
+  $('#threadlist').innerHTML='<div style="flex:1 1 0;min-height:0"></div>'+THREAD.map(m=>{
+    if(m.who==='you'){
+      return '<div style="align-self:flex-end;max-width:70%;text-align:right">'+
+        '<div class="eyebrow" style="margin-bottom:6px">YOU ASKED</div>'+
+        '<div class="pnl" style="padding:13px 16px;display:inline-block;text-align:left">'+
+        '<div class="pr" style="font-size:15.5px;color:var(--core)">'+m.t+'</div></div></div>';
+    }
+    return '<div style="max-width:82%">'+
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'+
+      '<span class="eyebrow">ATLAS</span>'+
+      (m.p?'<span class="prov '+m.p[0]+'"><span class="t">'+m.p[1]+'</span><span class="n">'+m.p[2]+'</span></span>':'')+
+      '</div><div class="pr" style="font-size:16px;color:var(--holo);line-height:1.6">'+m.t+'</div></div>';
+  }).join('');
+  $('#threadlist').scrollTop=$('#threadlist').scrollHeight;
+}
+function renderChips(){
+  $('#threadchips').innerHTML=CHIPS.map(c=>
+    '<span class="chipt tgt" data-chip="'+c.replace(/"/g,'&quot;')+'" role="button" tabindex="0" style="font-size:11px">'+c+'</span>').join('');
+  addLocks($('#threadchips'));
+}
+function ask(q){
+  if(!q.trim())return;
+  THREAD.push({who:'you',t:q});
+  renderThread();
+  const lc=q.toLowerCase();
+  let hit=CANNED.find(c=>c.k.some(k=>lc.includes(k)))||FALLBACK;
+  setTimeout(()=>{ THREAD.push({who:'atlas',t:hit.t,p:hit.p}); renderThread(); }, RM?60:520);
+}
+onEnter.thread=function(){renderThread();renderChips();};
+$('#threadsend').addEventListener('click',()=>{ ask($('#threadin').value); $('#threadin').value=''; });
+$('#threadin').addEventListener('keydown',e=>{ if(e.key==='Enter'){ ask(e.target.value); e.target.value=''; }});
+$('#threadchips').addEventListener('click',e=>{
+  const c=e.target.closest('[data-chip]'); if(!c)return; ask(c.dataset.chip);
+});
+[['#act-folder','Saved to “Campus Creamery” — 7 things in there now.'],
+ ['#act-doc','Made a document: “POS systems for the cart” — 4 pages, with the sources at the end.'],
+ ['#act-email','Emailed to rukinjames@gmail.com — subject “POS systems for the cart”.']]
+.forEach(([sel,msg])=>{
+  $(sel).addEventListener('click',()=>{
+    THREAD.push({who:'atlas',t:msg,p:['recalled','Recalled','· done just now']});
+    renderThread();
+  });
+});
+
+/* ═══ 13 WEATHER — the sun arc is a real gauge ═══════════════════════ */
+const HOURLY=[['4 PM',91,0],['5 PM',90,0],['6 PM',88,0],['7 PM',86,5],['8 PM',83,10],['9 PM',80,10],
+              ['10 PM',78,20],['11 PM',76,30],['12 AM',75,40],['1 AM',74,55],['2 AM',73,65],['3 AM',72,70]];
+onEnter.weather=function(){
+  /* temperature core: the arc is today's low-to-high range, marker at now */
+  const cx=196,cy=100,R=88;
+  const lo=71,hi=93,now=91;
+  let h=ticks(cx,cy,R+6,R+15,48,'rgba(46,159,223,.35)',1,6,6);
+  h+=ring(cx,cy,R,C.track,2);
+  h+=arc(cx,cy,R,(now-lo)/(hi-lo),C.holo,3.5);
+  h+=ring(cx,cy,R-15,'rgba(46,159,223,.16)',1,'stroke-dasharray="2 8"');
+  h+='<text x="'+(cx-R-14)+'" y="'+(cy+R+30)+'" fill="'+C.steel+'" font-size="9.5" font-family="monospace" letter-spacing="1.5">LOW 71°</text>';
+  h+='<text x="'+(cx+R+14)+'" y="'+(cy+R+30)+'" text-anchor="end" fill="'+C.steel+'" font-size="9.5" font-family="monospace" letter-spacing="1.5">HIGH 93°</text>';
+  $('#wxring').innerHTML=h;
+
+  /* sun band: where the sun is between sunrise and sunset, right now */
+  const sr=6*60+22, ss=19*60+56;
+  const d=new Date(), nowm=d.getHours()*60+d.getMinutes();
+  const p=Math.max(0,Math.min(1,(nowm-sr)/(ss-sr)));
+  const bx=30, bw=332, by=76, rx=bw/2, ry=54, mx=bx+rx;
+  let s='';
+  s+='<line x1="14" y1="'+by+'" x2="378" y2="'+by+'" stroke="rgba(123,147,163,.28)" stroke-width="1" stroke-dasharray="3 6"/>';
+  s+='<path d="M'+bx+' '+by+' A'+rx+' '+ry+' 0 0 1 '+(bx+bw)+' '+by+'" fill="none" stroke="rgba(255,160,46,.22)" stroke-width="2"/>';
+  const ang=Math.PI*(1-p);
+  const px=mx-Math.cos(ang)*rx, py=by-Math.sin(ang)*ry;
+  s+='<path d="M'+bx+' '+by+' A'+rx+' '+ry+' 0 0 1 '+px.toFixed(1)+' '+py.toFixed(1)+'" fill="none" stroke="'+C.armed+'" stroke-width="2.5"/>';
+  s+='<circle cx="'+px.toFixed(1)+'" cy="'+py.toFixed(1)+'" r="7" fill="'+C.armed+'"/>';
+  s+='<circle cx="'+px.toFixed(1)+'" cy="'+py.toFixed(1)+'" r="14" fill="none" stroke="'+C.armed+'" stroke-width="1" opacity=".5"/>';
+  s+='<line x1="'+px.toFixed(1)+'" y1="'+py.toFixed(1)+'" x2="'+px.toFixed(1)+'" y2="'+by+'" stroke="rgba(255,160,46,.35)" stroke-width="1" stroke-dasharray="2 4"/>';
+  s+='<line x1="'+bx+'" y1="'+(by-6)+'" x2="'+bx+'" y2="'+(by+6)+'" stroke="'+C.steel+'"/>';
+  s+='<line x1="'+(bx+bw)+'" y1="'+(by-6)+'" x2="'+(bx+bw)+'" y2="'+(by+6)+'" stroke="'+C.steel+'"/>';
+  s+='<text x="'+bx+'" y="'+(by+20)+'" text-anchor="middle" fill="'+C.steel+'" font-size="9.5" font-family="monospace" letter-spacing="1.5">6:22</text>';
+  s+='<text x="'+(bx+bw)+'" y="'+(by+20)+'" text-anchor="middle" fill="'+C.steel+'" font-size="9.5" font-family="monospace" letter-spacing="1.5">7:56</text>';
+  s+='<text x="'+mx+'" y="18" text-anchor="middle" fill="'+C.steel+'" font-size="9" font-family="monospace" letter-spacing="2.5">SUN POSITION NOW</text>';
+  $('#wxsun').innerHTML=s;
+
+  /* the next twelve hours */
+  const tmin=68, tmax=94;
+  $('#wxhours').innerHTML=HOURLY.map(hr=>{
+    const bh=Math.round(((hr[1]-tmin)/(tmax-tmin))*38)+5;
+    const wet=hr[2]>=40;
+    return '<div style="flex:1;text-align:center">'+
+      '<div class="mo" style="font-size:12px;color:'+(wet?'var(--armed)':'var(--core)')+'">'+hr[1]+'°</div>'+
+      '<div style="height:44px;display:flex;align-items:flex-end;justify-content:center;margin-top:5px">'+
+        '<span style="width:3px;height:'+bh+'px;background:'+(wet?C.armed:C.holo)+';display:block;opacity:.9"></span>'+
+      '</div>'+
+      '<div class="mo" style="font-size:9.5px;margin-top:6px;color:'+(hr[2]>0?(wet?'var(--armed)':'var(--holo)'):'var(--steel-2)')+'">'+
+        (hr[2]>0?hr[2]+'%':'—')+'</div>'+
+      '<div class="mo st" style="font-size:9px;margin-top:4px;letter-spacing:.1em">'+hr[0]+'</div></div>';
+  }).join('');
+};
+
+/* ═══ 14 TIMERS — the ring depletes ══════════════════════════════════ */
+let TIMERS=[
+ {id:1,label:'Base in the ice bath',dur:20*60,left:47,paused:false},
+ {id:2,label:'Chem 261 pre-lab reading',dur:45*60,left:28*60+40,paused:false},
+ {id:3,label:'Dryer — 4th floor',dur:60*60,left:51*60+5,paused:true}
+];
+let nextTimerId=4;
+function fmt(s){
+  s=Math.max(0,Math.round(s));
+  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60;
+  return h>0 ? h+':'+pad(m)+':'+pad(sec) : m+':'+pad(sec);
+}
+function renderTimers(){
+  const grid=$('#timergrid'), empty=$('#timerempty');
+  $('#timercount').textContent=TIMERS.length? TIMERS.length+' RUNNING · TAP TO ADJUST' : '';
+  if(!TIMERS.length){ grid.innerHTML=''; grid.style.display='none'; empty.style.display='block'; return; }
+  grid.style.display='flex'; empty.style.display='none';
+  grid.innerHTML=TIMERS.map(t=>{
+    const pct=t.left/t.dur, done=t.left<=0, hot=t.left<=60&&!done;
+    const col=done||hot?C.armed:C.holo;
+    const R=100;
+    let sv='<svg viewBox="0 0 224 224" width="224" height="224">'+
+      ticks(112,112,R+6,R+14,60,(done||hot)?'rgba(255,160,46,.35)':'rgba(46,159,223,.35)',1,5,5)+
+      ring(112,112,R,C.track,2)+
+      arc(112,112,R,done?1:pct,col,4,done?'class="pulse"':'')+
+      ring(112,112,R-18,'rgba(46,159,223,.18)',1,'stroke-dasharray="2 7"')+
+      '</svg>';
+    return '<div class="pnl'+(done||hot?' hot':'')+'" style="flex:1;padding:18px 16px;text-align:center;position:relative">'+
+      '<div class="cd" style="font-size:13px;letter-spacing:.15em;color:'+(done?'var(--armed)':'var(--core)')+
+        ';min-height:34px;line-height:1.3">'+t.label+'</div>'+
+      '<div style="position:relative;width:224px;height:224px;margin:8px auto 0">'+sv+
+        '<div style="position:absolute;inset:0;display:grid;place-items:center">'+
+        '<div><div class="mo" style="font-size:'+(done?28:36)+'px;color:'+(done?'var(--armed)':'var(--core)')+
+        ';text-shadow:'+(done?'var(--gl-a)':'0 0 16px rgba(120,200,255,.4)')+'">'+
+        (done?"TIME'S UP":fmt(t.left))+'</div>'+
+        '<div class="mo st" style="font-size:10px;margin-top:5px">'+(t.paused?'PAUSED':'OF '+fmt(t.dur))+'</div>'+
+        '</div></div></div>'+
+      '<div style="display:flex;gap:6px;margin-top:14px">'+
+        (done
+          ? '<span class="btn arm tgt" data-tm="stop:'+t.id+'" role="button" tabindex="0" style="flex:1">STOP</span>'
+          : '<span class="btn gh sm tgt" data-tm="sub:'+t.id+'" role="button" tabindex="0" style="flex:1">−1 MIN</span>'+
+            '<span class="btn gh sm tgt" data-tm="add:'+t.id+'" role="button" tabindex="0" style="flex:1">+1 MIN</span>'+
+            '<span class="btn '+(t.paused?'arm ':'gh ')+'sm tgt" data-tm="pause:'+t.id+'" role="button" tabindex="0" style="flex:1">'+
+            (t.paused?'RESUME':'PAUSE')+'</span>')+
+      '</div>'+
+      (done?'':'<div style="margin-top:6px"><span class="btn gh sm tgt" data-tm="stop:'+t.id+
+        '" role="button" tabindex="0" style="width:100%;color:var(--steel)">CANCEL TIMER</span></div>')+
+    '</div>';
+  }).join('');
+  addLocks(grid);
+}
+$('#timergrid').addEventListener('click',e=>{
+  const b=e.target.closest('[data-tm]'); if(!b)return;
+  const [act,ids]=b.dataset.tm.split(':'); const id=+ids;
+  const t=TIMERS.find(x=>x.id===id); if(!t)return;
+  if(act==='add') t.left+=60;
+  else if(act==='sub') t.left=Math.max(0,t.left-60);
+  else if(act==='pause') t.paused=!t.paused;
+  else if(act==='stop') TIMERS=TIMERS.filter(x=>x.id!==id);
+  renderTimers();
+});
+function newTimer(){
+  TIMERS.push({id:nextTimerId++,label:'New timer',dur:12*60,left:12*60,paused:false});
+  if(TIMERS.length>3) TIMERS=TIMERS.slice(-3);
+  if(cur!=='timers') go('timers'); else renderTimers();
+}
+$('#timeradd').addEventListener('click',newTimer);
+$('#timeradd2').addEventListener('click',newTimer);
+$('#timerquick').addEventListener('click',e=>{
+  const q=e.target.closest('[data-quick]'); if(!q)return;
+  const [mins,label]=q.dataset.quick.split('|');
+  TIMERS.push({id:nextTimerId++,label:label,dur:+mins*60,left:+mins*60,paused:false});
+  if(TIMERS.length>3) TIMERS=TIMERS.slice(-3);
+  renderTimers();
+});
+setInterval(()=>{
+  let changed=false;
+  TIMERS.forEach(t=>{ if(!t.paused&&t.left>0){ t.left--; changed=true; } });
+  const running=TIMERS.filter(t=>!t.paused&&t.left>0).sort((a,b)=>a.left-b.left)[0];
+  const fired=TIMERS.find(t=>t.left<=0);
+  const il=$('#idletimer');
+  if(il) il.textContent = fired ? "TIME'S UP · "+fired.label.toUpperCase()
+       : (running ? fmt(running.left)+' · '+running.label.toUpperCase() : 'NONE RUNNING');
+  if(changed&&cur==='timers') renderTimers();
+},1000);
+onEnter.timers=renderTimers;
+
+/* ═══ WEBAUDIO — alarm previews ══════════════════════════════════════ */
+let AC=null;
+function ac(){ if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)();
+  if(AC.state==='suspended') AC.resume(); return AC; }
+function tone(t0,freq,dur,type,gain,sweepTo){
+  const a=ac(), o=a.createOscillator(), g=a.createGain();
+  o.type=type||'sine'; o.frequency.setValueAtTime(freq,t0);
+  if(sweepTo) o.frequency.exponentialRampToValueAtTime(sweepTo,t0+dur);
+  g.gain.setValueAtTime(0.0001,t0);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.0002,gain),t0+0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+  o.connect(g); g.connect(a.destination); o.start(t0); o.stop(t0+dur+0.05);
+}
+const SOUNDS={
+ beacon:{name:'Beacon',desc:'Three flat pulses. Hard to sleep through.',
+   play(v){const t=ac().currentTime;for(let i=0;i<3;i++)tone(t+i*0.22,880,0.13,'square',0.16*v);}},
+ chime:{name:'Chime',desc:'Rising four-note figure. Gentle.',
+   play(v){const t=ac().currentTime;[523.25,659.25,783.99,1046.5].forEach((f,i)=>tone(t+i*0.15,f,0.5,'triangle',0.16*v));}},
+ sonar:{name:'Sonar',desc:'Two falling sweeps with a long tail.',
+   play(v){const t=ac().currentTime;tone(t,1200,0.7,'sine',0.2*v,240);tone(t+0.8,1200,0.7,'sine',0.14*v,240);}},
+ klaxon:{name:'Klaxon',desc:'Two hard blasts. For the ones you cannot miss.',
+   play(v){const t=ac().currentTime;tone(t,196,0.34,'sawtooth',0.11*v,150);tone(t+0.42,196,0.34,'sawtooth',0.11*v,150);}},
+ swell:{name:'Swell',desc:'Slow rise over four seconds. Wakes you gradually.',
+   play(v){const t=ac().currentTime;tone(t,280,1.6,'sine',0.12*v,700);tone(t+0.2,420,1.5,'sine',0.06*v,900);}},
+ ticker:{name:'Ticker',desc:'Dry clicks, then one tone. Quietest option.',
+   play(v){const t=ac().currentTime;for(let i=0;i<5;i++)tone(t+i*0.13,1600,0.03,'square',0.05*v);tone(t+0.75,660,0.4,'triangle',0.14*v);}}
+};
+
+/* ═══ 15 ALARMS ══════════════════════════════════════════════════════ */
+const DAYL=['S','M','T','W','T','F','S'];
+let ALARMS=[
+ {id:1,h:7,m:10,ap:'AM',label:'Chem 261 lab',days:[0,1,1,1,1,1,0],on:true,sound:'beacon',vol:0.7},
+ {id:2,h:6,m:45,ap:'AM',label:'Creamery prep',days:[0,0,0,0,0,0,1],on:true,sound:'klaxon',vol:0.9},
+ {id:3,h:9,m:0,ap:'AM',label:'Bio 2960 flashcards',days:[1,1,1,1,1,1,1],on:false,sound:'chime',vol:0.5},
+ {id:4,h:10,m:30,ap:'PM',label:'Wind down',days:[1,1,1,1,1,1,1],on:true,sound:'swell',vol:0.4}
+];
+function recur(days){
+  const s=days.join('');
+  if(s==='1111111')return 'DAILY';
+  if(s==='0111110')return 'WEEKDAYS';
+  if(s==='1000001')return 'SAT + SUN';
+  if(days.reduce((a,b)=>a+b,0)===0)return 'ONCE';
+  return days.map((d,i)=>d?['SUN','MON','TUE','WED','THU','FRI','SAT'][i]:null).filter(Boolean).join(' ');
+}
+function renderAlarms(){
+  const on=ALARMS.filter(a=>a.on).length;
+  $('#alarmnext').textContent=on? on+' ON · NEXT IS 7:10 AM, IN 16 HOURS' : 'ALL ALARMS OFF';
+  $('#alarmlist').innerHTML=ALARMS.map(a=>
+   '<div class="row tgt" data-alarm="'+a.id+'" role="button" tabindex="0" style="min-height:88px">'+
+   '<div style="width:154px">'+
+     '<div class="cd" style="font-size:34px;letter-spacing:.05em;color:'+(a.on?'var(--core)':'var(--steel)')+
+     ';text-shadow:'+(a.on?'0 0 16px rgba(120,200,255,.35)':'none')+'">'+a.h+':'+pad(a.m)+
+     '<span style="font-size:16px;letter-spacing:.14em;margin-left:6px">'+a.ap+'</span></div>'+
+   '</div>'+
+   '<div style="flex:1">'+
+     '<div class="cd" style="font-size:15px;letter-spacing:.13em;color:'+(a.on?'var(--holo)':'var(--steel)')+'">'+a.label+'</div>'+
+     '<div style="display:flex;gap:7px;margin-top:8px;align-items:center">'+
+       '<span class="chip'+(a.on?' on':'')+'">'+recur(a.days)+'</span>'+
+       '<span class="chip'+(a.on?' on':'')+'">'+SOUNDS[a.sound].name+'</span>'+
+       '<span class="mo st" style="font-size:10px">VOL '+Math.round(a.vol*100)+'%</span>'+
+     '</div>'+
+   '</div>'+
+   '<span class="mo st" style="font-size:10px;letter-spacing:.16em;width:78px;text-align:right">'+(a.on?'ARMED':'OFF')+'</span>'+
+   '<span class="togwrap tgt" data-tog="'+a.id+'" role="switch" aria-checked="'+a.on+'" tabindex="0" aria-label="Turn alarm '+(a.on?'off':'on')+'">'+
+     '<span class="tog'+(a.on?' on':'')+'"><i></i></span></span>'+
+   '</div>').join('');
+  addLocks($('#alarmlist'));
+}
+$('#alarmlist').addEventListener('click',e=>{
+  const tg=e.target.closest('[data-tog]');
+  if(tg){ e.stopPropagation();
+    const a=ALARMS.find(x=>x.id===+tg.dataset.tog); a.on=!a.on; renderAlarms(); return; }
+  const r=e.target.closest('[data-alarm]');
+  if(r) editAlarm(+r.dataset.alarm);
+});
+onEnter.alarms=renderAlarms;
+
+/* ═══ 16 ALARM EDITOR ════════════════════════════════════════════════ */
+let AE=null;
+function editAlarm(id){
+  const a=ALARMS.find(x=>x.id===id);
+  AE=a? JSON.parse(JSON.stringify(a)) : {id:0,h:7,m:0,ap:'AM',label:'New alarm',days:[0,1,1,1,1,1,0],on:true,sound:'beacon',vol:0.7};
+  go('alarmedit');
+}
+$('#alarmadd').addEventListener('click',()=>editAlarm(0));
+const LABELS=['Chem 261 lab','Creamery prep','Wind down'];
+function renderAE(){
+  $('#aetitle').textContent = AE.id ? 'Edit alarm' : 'New alarm';
+  $('#aeh').textContent=AE.h; $('#aem').textContent=pad(AE.m); $('#aeap').textContent=AE.ap;
+  $('#aelabel').textContent=AE.label.toUpperCase();
+  $('#aedays').innerHTML=AE.days.map((d,i)=>
+    '<span class="chipt tgt'+(d?' on':'')+'" data-day="'+i+'" role="button" tabindex="0" style="width:58px;padding:0">'+DAYL[i]+'</span>').join('');
+  $$('#aepresets .chipt').forEach(c=>{
+    const s=AE.days.join('');
+    const m={weekdays:'0111110',weekend:'1000001',daily:'1111111'};
+    c.classList.toggle('on', m[c.dataset.preset]===s);
+  });
+  $('#aesounds').innerHTML=Object.keys(SOUNDS).map(k=>{
+    const s=SOUNDS[k], sel=AE.sound===k;
+    return '<div class="pnl tgt'+(sel?' hot':'')+'" data-sound="'+k+'" role="button" tabindex="0" style="display:block;padding:13px 15px;cursor:pointer">'+
+     '<div style="display:flex;align-items:center;gap:10px">'+
+      '<svg width="18" height="18" viewBox="0 0 18 18">'+
+       '<circle cx="9" cy="9" r="7.5" fill="none" stroke="'+(sel?C.armed:C.steel2)+'" stroke-width="1.2"/>'+
+       (sel?'<circle cx="9" cy="9" r="3.6" fill="'+C.armed+'"/>':'')+'</svg>'+
+      '<span class="cd" style="font-size:14px;letter-spacing:.14em;color:'+(sel?'var(--armed)':'var(--core)')+'">'+s.name+'</span>'+
+      '<span style="flex:1"></span>'+
+      '<span class="mo" style="font-size:9.5px;letter-spacing:.16em;color:'+(sel?'var(--armed)':'var(--steel)')+'">'+(sel?'▶ PLAYING':'▶ HEAR IT')+'</span>'+
+     '</div>'+
+     '<div class="mo st" style="font-size:10.5px;margin-top:7px;line-height:1.45">'+s.desc+'</div></div>';
+  }).join('');
+  $('#aevolbar').innerHTML=Array.from({length:8},(_,i)=>{
+    const active=(i+1)/8<=AE.vol+0.001;
+    return '<span class="tgt" data-vol="'+((i+1)/8)+'" role="button" tabindex="0" style="flex:1;height:48px;display:block;'+
+      'background:'+(active?'linear-gradient(180deg,rgba(255,160,46,.5),rgba(255,160,46,.14))':'rgba(46,159,223,.07)')+
+      ';border:1px solid '+(active?'rgba(255,160,46,.6)':'var(--steel-2)')+'"></span>';
+  }).join('');
+  $('#aevoltxt').textContent=Math.round(AE.vol*100)+'%';
+  $('#aelabels').innerHTML=LABELS.map(l=>
+    '<span class="chipt tgt'+(l===AE.label?' on':'')+'" data-label="'+l.replace(/"/g,'&quot;')+'" role="button" tabindex="0" style="font-size:10.5px">'+l+'</span>').join('');
+  $('#aeuntil').textContent='RINGS IN '+untilStr()+' · '+recur(AE.days);
+  $('#aesummary').textContent=SOUNDS[AE.sound].name+' at '+Math.round(AE.vol*100)+'% — '+
+    (AE.vol>=0.8?'loud enough through a closed door.':AE.vol>=0.5?'audible across the room.':'quiet; only works if you are close.');
+  addLocks($('#alarmedit'));
+}
+function untilStr(){
+  const now=new Date();
+  let h=AE.h%12 + (AE.ap==='PM'?12:0);
+  const t=new Date(now); t.setHours(h,AE.m,0,0);
+  if(t<=now) t.setDate(t.getDate()+1);
+  const mins=Math.round((t-now)/60000);
+  return Math.floor(mins/60)+'H '+pad(mins%60)+'M';
+}
+onEnter.alarmedit=function(){ if(!AE) editAlarm(1); else renderAE(); };
+$('#alarmedit').addEventListener('click',e=>{
+  const b=e.target.closest('[data-ae]');
+  if(b){
+    const a=b.dataset.ae;
+    if(a==='h+1') AE.h=AE.h===12?1:AE.h+1;
+    else if(a==='h-1') AE.h=AE.h===1?12:AE.h-1;
+    else if(a==='m+5') AE.m=(AE.m+5)%60;
+    else if(a==='m-5') AE.m=(AE.m+55)%60;
+    else if(a==='ap') AE.ap=AE.ap==='AM'?'PM':'AM';
+    renderAE(); return;
+  }
+  const d=e.target.closest('[data-day]');
+  if(d){ AE.days[+d.dataset.day]=AE.days[+d.dataset.day]?0:1; renderAE(); return; }
+  const p=e.target.closest('[data-preset]');
+  if(p){ const m={weekdays:[0,1,1,1,1,1,0],weekend:[1,0,0,0,0,0,1],daily:[1,1,1,1,1,1,1]};
+    AE.days=m[p.dataset.preset].slice(); renderAE(); return; }
+  const s=e.target.closest('[data-sound]');
+  if(s){ AE.sound=s.dataset.sound; renderAE(); SOUNDS[AE.sound].play(AE.vol); return; }
+  const v=e.target.closest('[data-vol]');
+  if(v){ AE.vol=+v.dataset.vol; renderAE(); SOUNDS[AE.sound].play(AE.vol); return; }
+  const l=e.target.closest('[data-label]');
+  if(l){ AE.label=l.dataset.label; renderAE(); return; }
+});
+$('#aevolup').addEventListener('click',()=>{AE.vol=Math.min(1,AE.vol+0.125);renderAE();SOUNDS[AE.sound].play(AE.vol);});
+$('#aevoldown').addEventListener('click',()=>{AE.vol=Math.max(0.125,AE.vol-0.125);renderAE();SOUNDS[AE.sound].play(AE.vol);});
+$('#aesave').addEventListener('click',()=>{
+  if(AE.id){ const i=ALARMS.findIndex(a=>a.id===AE.id); ALARMS[i]=AE; }
+  else { AE.id=Math.max(...ALARMS.map(a=>a.id))+1; ALARMS.push(AE); }
+  AE=null; go('alarms');
+});
+
+/* ═══ 17 AGENDA ══════════════════════════════════════════════════════ */
+const EVENTS=[
+ {s:9,e:10.5,t:'Creamery — batch 3, mint chip',w:'Kitchen, Village East',c:'creamery',p:'Carlos'},
+ {s:11,e:12,t:'Freezer delivery window',w:'Loading dock',c:'creamery',p:'Ray Whitfield'},
+ {s:14,e:15.5,t:'Bio 2960 flashcards',w:'Olin Library, 3rd floor',c:'washu',p:''},
+ {s:19,e:20.5,t:'Lacrosse — turf field',w:'Francis Field',c:'lacrosse',p:'Carlos, Dev, Priya +6'}
+];
+const HSTART=8, HEND=23, HPX=36, HTOP=12;
+function hLabel(h){const x=h%12===0?12:h%12; return x+(h<12?' AM':' PM');}
+function renderAgenda(){
+  const rail=$('#agendarail');
+  let h='<div style="position:relative;height:'+((HEND-HSTART)*HPX+HTOP+10)+'px">';
+  for(let x=HSTART;x<HEND;x++){
+    h+='<div style="position:absolute;left:0;right:0;top:'+((x-HSTART)*HPX+HTOP)+'px;height:'+HPX+'px;border-top:1px solid var(--line-2)">'+
+       '<span class="mo st" style="font-size:10px;position:absolute;left:0;top:-7px;background:#000;padding-right:8px">'+hLabel(x)+'</span></div>';
+  }
+  EVENTS.forEach((ev,i)=>{
+    const top=(ev.s-HSTART)*HPX+HTOP, hh=(ev.e-ev.s)*HPX;
+    const hot=ev.c==='creamery';
+    h+='<div class="pnl'+(hot?' hot':'')+' tgt" data-ev="'+i+'" role="button" tabindex="0" '+
+       'style="display:block;position:absolute;left:76px;right:8px;top:'+top+'px;min-height:54px;height:'+(hh-4)+'px;padding:6px 14px;cursor:pointer;overflow:hidden">'+
+       '<div style="display:flex;align-items:baseline;gap:12px">'+
+       '<span class="cd" style="font-size:14.5px;letter-spacing:.12em;color:'+(hot?'var(--armed)':'var(--core)')+'">'+ev.t+'</span>'+
+       '<span class="mo st" style="font-size:10px">'+hLabel(Math.floor(ev.s))+(ev.s%1?':30':'')+' – '+
+        hLabel(Math.floor(ev.e))+(ev.e%1?':30':'')+'</span></div>'+
+       '<div class="mo st" style="font-size:10.5px;margin-top:5px">'+ev.w+(ev.p?' · '+ev.p:'')+'</div></div>';
+  });
+  const d=new Date(); const nowh=d.getHours()+d.getMinutes()/60;
+  if(nowh>=HSTART&&nowh<=HEND){
+    const top=(nowh-HSTART)*HPX+HTOP;
+    h+='<div style="position:absolute;left:44px;right:0;top:'+top.toFixed(1)+'px;height:1.5px;background:'+C.armed+
+       ';box-shadow:0 0 8px rgba(255,160,46,.6)"></div>'+
+       '<div class="mo am" style="position:absolute;left:0;top:'+(top-7).toFixed(1)+
+       'px;font-size:9.5px;letter-spacing:.16em;background:#000;padding-right:6px">NOW</div>';
+  }
+  h+='</div>';
+  rail.innerHTML=h;
+  addLocks(rail);
+}
+$('#agendarail').addEventListener('click',e=>{
+  const b=e.target.closest('[data-ev]'); if(b) go('eventedit');
+});
+$('#agendanew').addEventListener('click',()=>go('eventedit'));
+onEnter.agenda=renderAgenda;
+
+/* ═══ 18 EVENT EDITOR ════════════════════════════════════════════════ */
+let EV={start:9*60+30,dur:90,people:['Carlos','Dev'],repeat:'weekly'};
+const PEOPLE_OPTS=['Carlos','Dev','Priya','Mom','Just me'];
+const REPEAT_OPTS=[['none','Does not repeat'],['weekly','Every Monday'],['weekdays','Weekdays'],['monthly','Monthly']];
+function tstr(mins){
+  let h=Math.floor(mins/60), m=mins%60;
+  const ap=h<12?'AM':'PM'; h=h%12===0?12:h%12;
+  return h+':'+pad(m)+' '+ap;
+}
+/* numbers Atlas says aloud are written the way it says them */
+const NUMW=['twelve','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve'];
+const MINW={0:'',15:'fifteen',30:'thirty',45:'forty-five'};
+function spokenTime(mins){
+  const h24=Math.floor(mins/60), m=mins%60;
+  const h=NUMW[h24%12===0?12:h24%12];
+  const part=h24<12?'in the morning':(h24<17?'in the afternoon':'in the evening');
+  const mw=MINW[m]!==undefined?MINW[m]:(m<10?'oh '+NUMW[m]:String(m));
+  return (mw?h+' '+mw:h+" o'clock")+' '+part;
+}
+function spokenDur(mins){
+  if(mins===60) return 'an hour';
+  if(mins===90) return 'an hour and a half';
+  if(mins===30) return 'half an hour';
+  if(mins<60) return NUMW[mins]||mins+' minutes';
+  const h=Math.floor(mins/60), r=mins%60;
+  const hw=(h===1?'an hour':NUMW[h]+' hours');
+  return r? hw+' and '+(r===30?'a half':r+' minutes') : hw;
+}
+function renderEV(){
+  $('#evstart').textContent=tstr(EV.start);
+  $('#evdur').textContent = EV.dur>=60 ? (EV.dur/60===Math.floor(EV.dur/60)? (EV.dur/60)+' HR' : (EV.dur/60).toFixed(1)+' HR') : EV.dur+' MIN';
+  $('#evpeople').innerHTML=PEOPLE_OPTS.map(p=>
+    '<span class="chipt tgt'+(EV.people.includes(p)?' on':'')+'" data-person="'+p+'" role="button" tabindex="0">'+p+'</span>').join('');
+  $('#evrepeat').innerHTML=REPEAT_OPTS.map(r=>
+    '<span class="chipt tgt'+(EV.repeat===r[0]?' on':'')+'" data-rep="'+r[0]+'" role="button" tabindex="0" style="font-size:11px">'+r[1]+'</span>').join('');
+  addLocks($('#eventedit'));
+}
+$('#eventedit').addEventListener('click',e=>{
+  const b=e.target.closest('[data-ev]');
+  if(b){ const a=b.dataset.ev;
+    if(a==='t-15') EV.start=Math.max(0,EV.start-15);
+    else if(a==='t+15') EV.start=Math.min(1425,EV.start+15);
+    else if(a==='d-15') EV.dur=Math.max(15,EV.dur-15);
+    else if(a==='d+15') EV.dur=Math.min(480,EV.dur+15);
+    renderEV(); return; }
+  const p=e.target.closest('[data-person]');
+  if(p){ const v=p.dataset.person;
+    EV.people = EV.people.includes(v) ? EV.people.filter(x=>x!==v) : EV.people.concat(v);
+    renderEV(); return; }
+  const r=e.target.closest('[data-rep]');
+  if(r){ EV.repeat=r.dataset.rep; renderEV(); return; }
+});
+onEnter.eventedit=renderEV;
+
+/* ═══ 19 CONFIRM EVENT ═══════════════════════════════════════════════ */
+function doneRing(id,label){
+  const cx=110,cy=110;
+  let h=ticks(cx,cy,92,102,48,'rgba(46,159,223,.35)',1,6,5);
+  h+=ring(cx,cy,80,C.track,1.5)+arc(cx,cy,80,1,C.core,3);
+  h+='<g class="spinr" style="transform-origin:110px 110px">'+segRing(cx,cy,62,5,26,'rgba(127,212,250,.5)',2)+'</g>';
+  h+='<path d="M88 110l16 17 30-34" fill="none" stroke="'+C.core+'" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>';
+  const el=$('#'+id); if(el) el.innerHTML=h;
+}
+onEnter.eventconfirm=function(){
+  $('#ecphase1').style.display='block'; $('#ecphase2').style.display='none';
+  const cx=150,cy=150;
+  let h=ticks(cx,cy,128,138,60,'rgba(255,160,46,.3)',1,5,6);
+  h+=ring(cx,cy,116,'rgba(255,160,46,.2)',1.5);
+  h+='<g class="spin" style="transform-origin:150px 150px">'+segRing(cx,cy,116,3,180,C.armed,3)+'</g>';
+  h+='<g class="spinr" style="transform-origin:150px 150px">'+segRing(cx,cy,96,4,70,'rgba(255,160,46,.5)',2)+'</g>';
+  h+=ring(cx,cy,76,'rgba(255,160,46,.22)',1);
+  $('#ecring').innerHTML=h;
+  const who=EV.people.length?EV.people.join(' and '):'nobody';
+  typeInto($('#ecreadback'),
+   'I’ll add "Mudd Field cart — setup" to the Campus Creamery calendar, Monday the seventeenth at '+
+   spokenTime(EV.start)+', for '+spokenDur(EV.dur)+', and invite '+who+
+   '. Say yes and I’ll put it in.', RM?4:20);
+};
+onLeave.eventconfirm=function(){ if(typer){clearInterval(typer);typer=null;} };
+$('#ecconfirm').addEventListener('click',()=>{
+  if(typer){clearInterval(typer);typer=null;}
+  $('#ecphase1').style.display='none'; $('#ecphase2').style.display='block';
+  doneRing('ecdone');
+});
+
+/* ═══ 20 PEOPLE ══════════════════════════════════════════════════════ */
+const CANDIDATES=[
+ {i:'CO',n:'Carlos Ontiveros',r:'Lacrosse · Campus Creamery',m:.91,
+  why:'You text him most weeks. He is at the turf field tonight.',last:'Texted Friday'},
+ {i:'CM',n:'Carlos Mendez',r:'Blue Line Dairy · supplier',m:.44,
+  why:'Business contact. Last message was about cream pricing.',last:'Emailed 3 weeks ago'},
+ {i:'CR',n:'Carla Ruiz',r:'Chem 261 lab partner',m:.31,
+  why:'Sounds close to "Carlos" — including in case I misheard.',last:'Texted 11 days ago'}
+];
+function renderPeople(){
+  $('#peoplecards').innerHTML=CANDIDATES.map((c,i)=>{
+    const hot=i===0;
+    return '<div class="pnl'+(hot?' hot':'')+' tgt" data-person-pick="'+i+'" role="button" tabindex="0" '+
+     'style="display:block;flex:1;padding:22px 20px;cursor:pointer">'+
+     '<div style="display:flex;align-items:center;gap:16px">'+
+      '<svg width="64" height="64" viewBox="0 0 64 64">'+
+       ticks(32,32,26,30,24,hot?'rgba(255,160,46,.4)':'rgba(46,159,223,.35)',1,6,4)+
+       ring(32,32,23,C.track,1.5)+arc(32,32,23,c.m,hot?C.armed:C.holo,2.5)+
+       '<text x="32" y="37" text-anchor="middle" fill="'+(hot?C.armed:C.core)+'" font-size="15" font-family="monospace">'+c.i+'</text>'+
+      '</svg>'+
+      '<div><div class="cd" style="font-size:19px;letter-spacing:.12em;color:'+(hot?'var(--armed)':'var(--core)')+'">'+c.n+'</div>'+
+      '<div class="mo st" style="font-size:10.5px;margin-top:5px">'+c.r+'</div></div>'+
+     '</div>'+
+     '<div class="pr" style="font-size:13.5px;color:var(--holo);margin-top:16px;min-height:58px">'+c.why+'</div>'+
+     '<div style="display:flex;align-items:center;gap:10px;margin-top:6px">'+
+      '<span class="mo" style="font-size:10.5px;letter-spacing:.14em;color:'+(hot?'var(--armed)':'var(--steel)')+'">'+
+       Math.round(c.m*100)+'% MATCH</span>'+
+      '<span style="flex:1"></span><span class="mo st" style="font-size:10px">'+c.last+'</span></div>'+
+     '<div style="margin-top:16px"><span class="btn '+(hot?'arm':'gh')+' sm" style="width:100%">TEXT '+c.n.split(' ')[0].toUpperCase()+'</span></div>'+
+     '</div>';
+  }).join('');
+  addLocks($('#peoplecards'));
+}
+$('#peoplecards').addEventListener('click',e=>{
+  const c=e.target.closest('[data-person-pick]'); if(c) go('sms');
+});
+onEnter.people=renderPeople;
+
+/* ═══ 21 SMS ═════════════════════════════════════════════════════════ */
+const SMSEDITS=['Make it shorter','Say fifteen minutes instead','Add "sorry"','Read it back to me'];
+onEnter.sms=function(){
+  $('#smsphase1').style.display='block'; $('#smsphase2').style.display='none';
+  $('#smsbody').textContent='Running about ten minutes late to the turf field — start without me.';
+  $('#smsedits').innerHTML=SMSEDITS.map(t=>
+    '<span class="chipt tgt" data-smsedit="'+t+'" role="button" tabindex="0" style="font-size:11px">'+t+'</span>').join('');
+  addLocks($('#sms'));
+};
+$('#smsedits').addEventListener('click',e=>{
+  const c=e.target.closest('[data-smsedit]'); if(!c)return;
+  const t=c.dataset.smsedit, b=$('#smsbody');
+  if(t==='Make it shorter') b.textContent='Ten minutes late — start without me.';
+  else if(t==='Say fifteen minutes instead') b.textContent=b.textContent.replace('ten','fifteen');
+  else if(t==='Add "sorry"') b.textContent='Sorry — '+b.textContent.charAt(0).toLowerCase()+b.textContent.slice(1);
+  else typeInto(b,b.textContent,RM?4:26);
+});
+$('#smssend').addEventListener('click',()=>{
+  $('#smsphase1').style.display='none'; $('#smsphase2').style.display='block';
+  doneRing('smsdone');
+  const d=new Date();
+  $('#smstime').textContent=clockStr(d)+' '+(d.getHours()<12?'AM':'PM');
+});
+
+/* ═══ 22 INBOX / 23 EMAIL ════════════════════════════════════════════ */
+let MAIL=[
+ {id:1,from:'Ray Whitfield',addr:'service@northsiderefrig.com',sub:'Invoice 0812 — freezer service call',
+  snip:'Attached is the invoice for Thursday. The E4 code usually means the control board, but I want to see the panel before I…',
+  when:'11:04 AM',unread:true,
+  body:['James — attached is the invoice for Thursday’s call.',
+    'The E4 code you described usually points at the control board, but it can also be a dirty condenser coil throwing the temperature sensor off. I did not open the panel on Thursday because you were mid-service and the unit was full.',
+    'Before you pay this, send me a photo of the display when it faults again. If the code sits at E4 with the compressor still running, it is the board and that is another $340 in parts. If it clears on its own after ten minutes, it is the coil and I can clean it for the price of the call.',
+    'Either way I would not run it above 0°F until we know.',
+    'Ray Whitfield · Northside Refrigeration · (314) 555-0188'],
+  sum:'Ray wants a photo of the fault display before you pay the $248 invoice. If the E4 code holds with the compressor running it is the control board — another $340. If it clears itself, it is just a dirty coil. He says keep the freezer above 0°F until you know.'},
+ {id:2,from:'WashU Chemistry',addr:'chem-advising@wustl.edu',sub:'Chem 261: lab section swap deadline is Friday',
+  snip:'Students wishing to change lab sections for the fall term must submit the form by 5 PM Friday…',when:'9:41 AM',unread:true,
+  body:['Students wishing to change Chem 261 lab sections for the fall term must submit the section change form by 5:00 PM Friday, 21 August.','Swaps after the deadline require the instructor’s signature and are approved only for documented schedule conflicts.'],
+  sum:'You have until 5 PM Friday 21 August to swap Chem 261 lab sections without needing a signature.'},
+ {id:3,from:'Blue Line Dairy',addr:'orders@bluelinedairy.com',sub:'August cream pricing — 4% increase from the 24th',
+  snip:'Heavy cream moves to $4.18 per quart on the 24th. Standing orders are locked at the old price through…',when:'8:12 AM',unread:true,
+  body:['Heavy cream moves to $4.18 per quart on 24 August, up from $4.02.','Standing orders placed before the 22nd are locked at the old price through September.'],
+  sum:'Cream goes up 4% on the 24th. Order before the 22nd and you keep $4.02 a quart through September.'},
+ {id:4,from:'Priya Raman',addr:'p.raman@wustl.edu',sub:'Lacrosse Sunday 7pm — still on?',
+  snip:'Field looked soggy this morning but the forecast says clear. Confirming for the group…',when:'YESTERDAY',unread:false,
+  body:['Field looked soggy this morning but the forecast says clear tonight. Confirming for the group — are we still on for 7?'],sum:'Priya is confirming lacrosse at 7 tonight.'},
+ {id:5,from:'Campus Creamery Orders',addr:'orders@campuscreamery.co',sub:'3 new orders for Saturday — 46 scoops',
+  snip:'Sigma Chi 24 scoops, Olin study group 12, Mudd Field walk-up estimate 10…',when:'YESTERDAY',unread:false,
+  body:['Three orders came in for Saturday: Sigma Chi 24 scoops, Olin study group 12 scoops, and a walk-up estimate of 10.','Mint chip and salted caramel are the requested flavours.'],sum:'46 scoops for Saturday across three orders. Mint chip and salted caramel requested.'},
+ {id:6,from:'WashU Housing',addr:'housing@wustl.edu',sub:'Fall move-in parking permits',
+  snip:'Temporary parking permits for move-in weekend are available from 18 August…',when:'FRI',unread:false,
+  body:['Temporary parking permits for move-in weekend are available from 18 August in the housing portal.'],sum:'Move-in parking permits open 18 August in the housing portal.'}
+];
+let openMail=1;
+function renderInbox(){
+  const un=MAIL.filter(m=>m.unread).length;
+  $('#inboxcount').textContent = un ? un+' UNREAD · 6 MESSAGES' : 'ALL READ · 6 MESSAGES';
+  $('#inboxlist').innerHTML=MAIL.map(m=>
+   '<div class="row tgt" data-mail="'+m.id+'" role="button" tabindex="0" style="min-height:78px">'+
+   '<span class="dot" style="color:'+(m.unread?'var(--armed)':'transparent')+';box-shadow:'+
+     (m.unread?'0 0 8px var(--armed)':'none')+'"></span>'+
+   '<div style="width:210px">'+
+     '<div class="cd" style="font-size:14px;letter-spacing:.13em;color:'+(m.unread?'var(--core)':'var(--steel)')+'">'+m.from+'</div>'+
+     '<div class="mo st" style="font-size:9.5px;margin-top:4px">'+m.addr+'</div></div>'+
+   '<div style="flex:1;min-width:0">'+
+     '<div class="mo" style="font-size:13px;color:'+(m.unread?'var(--core)':'var(--holo)')+'">'+m.sub+'</div>'+
+     '<div class="pr" style="font-size:12.5px;color:var(--steel);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+m.snip+'</div></div>'+
+   '<span class="mo st" style="font-size:10.5px;width:88px;text-align:right">'+m.when+'</span>'+
+   '</div>').join('');
+  addLocks($('#inboxlist'));
+}
+$('#inboxlist').addEventListener('click',e=>{
+  const r=e.target.closest('[data-mail]'); if(!r)return;
+  openMail=+r.dataset.mail;
+  const m=MAIL.find(x=>x.id===openMail); m.unread=false;
+  go('email');
+});
+$('#inboxread').addEventListener('click',()=>{ MAIL.forEach(m=>m.unread=false); renderInbox(); });
+onEnter.inbox=renderInbox;
+
+onEnter.email=function(){
+  const m=MAIL.find(x=>x.id===openMail)||MAIL[0];
+  $('#emsubject').textContent=m.sub;
+  $('#emfrom').textContent=m.from; $('#emaddr').textContent=m.addr; $('#emtime').textContent=m.when;
+  $('#embody').innerHTML=m.body.map(p=>'<p style="margin-bottom:15px">'+p+'</p>').join('');
+  $('#embody').scrollTop=0;
+  $('#emsumbox').style.display='none';
+};
+$('#emsum').addEventListener('click',()=>{
+  const m=MAIL.find(x=>x.id===openMail)||MAIL[0];
+  $('#emsumbox').style.display='block';
+  typeInto($('#emsumtxt'), m.sum, RM?3:16);
+});
+$('#emreply').addEventListener('click',()=>go('emailsend'));
+
+/* ═══ 24 EMAIL SEND ══════════════════════════════════════════════════ */
+onEnter.emailsend=function(){
+  $('#esphase1').style.display='block'; $('#esphase2').style.display='none';
+  $('#esphoto').innerHTML=photoSVG('panel',256,168);
+  typeInto($('#esreadback'),
+   'I’ll reply to Ray Whitfield about invoice oh eight twelve, and attach the photo '+
+   'freezer-panel-2026-08-14.jpg — the one you took Thursday night. Nothing goes out until you say yes.',
+   RM?4:19);
+};
+onLeave.emailsend=function(){ if(typer){clearInterval(typer);typer=null;} };
+$('#esconfirm').addEventListener('click',()=>{
+  if(typer){clearInterval(typer);typer=null;}
+  $('#esphase1').style.display='none'; $('#esphase2').style.display='block';
+  doneRing('esdone');
+});
+
+/* ═══ 25 CAMERA ══════════════════════════════════════════════════════ */
+let camRAF=0, camStart=0, camLast=0, camShots=0;
+function camReticle(){
+  const cx=640,cy=400;
+  let h='';
+  h+=bracketBox(190,119,900,562,'rgba(127,212,250,.35)',26);
+  h+='<line x1="490" y1="119" x2="490" y2="681" stroke="rgba(127,212,250,.10)"/>';
+  h+='<line x1="790" y1="119" x2="790" y2="681" stroke="rgba(127,212,250,.10)"/>';
+  h+='<line x1="190" y1="306" x2="1090" y2="306" stroke="rgba(127,212,250,.10)"/>';
+  h+='<line x1="190" y1="494" x2="1090" y2="494" stroke="rgba(127,212,250,.10)"/>';
+  h+=ring(cx,cy,86,'rgba(255,160,46,.45)',1.2);
+  h+=ticks(cx,cy,92,102,24,'rgba(255,160,46,.5)',1.2,6,5);
+  h+=bracketBox(cx-58,cy-58,116,116,C.armed,18);
+  h+='<line x1="'+(cx-14)+'" y1="'+cy+'" x2="'+(cx+14)+'" y2="'+cy+'" stroke="'+C.armed+'" stroke-width="1.2"/>';
+  h+='<line x1="'+cx+'" y1="'+(cy-14)+'" x2="'+cx+'" y2="'+(cy+14)+'" stroke="'+C.armed+'" stroke-width="1.2"/>';
+  [[360,250],[920,250],[360,550],[920,550]].forEach(p=>{
+    h+=bracketBox(p[0]-22,p[1]-22,44,44,'rgba(127,212,250,.4)',9);
+  });
+  h+='<text x="1090" y="700" text-anchor="end" fill="'+C.steel+'" font-size="11" font-family="monospace" letter-spacing="2">FOCUS 1.2 M · CENTRE LOCK</text>';
+  $('#camret').innerHTML=h;
+}
+function camFrame(ts){
+  camRAF=requestAnimationFrame(camFrame);
+  if(ts-camLast<70) return; camLast=ts;
+  const cv=$('#camcanvas'), x=cv.getContext('2d');
+  const W=cv.width,H=cv.height, img=x.createImageData(W,H), d=img.data;
+  const t=ts/900;
+  for(let y=0;y<H;y++){
+    const band=Math.sin((y/H)*3.1+t)*22;
+    for(let px=0;px<W;px++){
+      const vig=1-((px-W/2)**2/(W*W*0.6)+(y-H/2)**2/(H*H*0.6));
+      const base=(34+band+Math.sin((px/W)*5+t*0.7)*16)*Math.max(0.25,vig);
+      const nz=(Math.random()-0.5)*30;
+      const v=Math.max(0,Math.min(255,base+nz));
+      const i=(y*W+px)*4;
+      d[i]=v*0.55; d[i+1]=v*0.86; d[i+2]=v*1.0; d[i+3]=255;
+    }
+  }
+  x.putImageData(img,0,0);
+  const el=Math.floor((Date.now()-camStart)/1000);
+  $('#camtime').textContent=pad(Math.floor(el/60))+':'+pad(el%60);
+}
+onEnter.camera=function(){
+  camReticle(); camStart=Date.now(); camLast=0;
+  if(!camRAF && !RM) camRAF=requestAnimationFrame(camFrame);
+  if(RM){ const cv=$('#camcanvas'),x=cv.getContext('2d');
+    x.fillStyle='#0a1520'; x.fillRect(0,0,cv.width,cv.height); }
+};
+onLeave.camera=function(){ if(camRAF){cancelAnimationFrame(camRAF);camRAF=0;} };
+$('#camshot').addEventListener('click',()=>{
+  const f=$('#camflash');
+  f.animate([{opacity:0},{opacity:.85},{opacity:0}],{duration:RM?1:280,easing:'ease-out'});
+  camShots++;
+  const th=$('#camthumb');
+  th.style.opacity='1'; th.style.pointerEvents='auto';
+  th.innerHTML='<div class="pnl" style="padding:3px">'+photoSVG('panel',80,56)+'</div>';
+  addLocks(th);
+  try{ tone(ac().currentTime,1800,0.02,'square',0.05); tone(ac().currentTime+0.03,1200,0.03,'square',0.04); }catch(e){}
+});
+$('#camthumb').addEventListener('click',()=>{ if(camShots) openPhoto(0); });
+
+/* ═══ 26 PHOTOS ══════════════════════════════════════════════════════ */
+function photoSVG(kind,w,h){
+  const s='<svg viewBox="0 0 240 160" width="'+w+'" height="'+h+'" style="display:block">';
+  const bg='<rect width="240" height="160" fill="#03070B"/>';
+  const G={
+   panel: bg+'<rect x="30" y="26" width="180" height="108" fill="#050D14" stroke="#2E9FDF" stroke-width="1"/>'+
+     '<rect x="46" y="44" width="148" height="42" fill="#000" stroke="#3E4E5A"/>'+
+     '<text x="120" y="76" text-anchor="middle" fill="#FFA02E" font-size="27" font-family="monospace">E4</text>'+
+     '<circle cx="62" cy="110" r="6" fill="#FFA02E"/><circle cx="86" cy="110" r="6" fill="none" stroke="#3E4E5A"/>'+
+     '<circle cx="110" cy="110" r="6" fill="none" stroke="#3E4E5A"/>'+
+     '<rect x="150" y="102" width="44" height="16" fill="none" stroke="#7FD4FA"/>',
+   whiteboard: bg+'<rect x="20" y="20" width="200" height="120" fill="#0A1219" stroke="#7FD4FA"/>'+
+     '<path d="M36 50h120M36 66h84M36 82h140M36 98h64" stroke="#4FB4E8" stroke-width="2"/>'+
+     '<path d="M170 92l14 14 22-30" stroke="#FFA02E" stroke-width="2.5" fill="none"/>',
+   receipt: bg+'<rect x="76" y="14" width="88" height="132" fill="#0A1219" stroke="#7FD4FA"/>'+
+     '<path d="M88 38h64M88 52h64M88 66h44M88 92h64M88 106h30" stroke="#4FB4E8" stroke-width="1.6"/>'+
+     '<text x="120" y="132" text-anchor="middle" fill="#FFA02E" font-size="14" font-family="monospace">$248</text>',
+   cart: bg+'<rect x="46" y="62" width="148" height="56" fill="#0A1219" stroke="#7FD4FA"/>'+
+     '<path d="M46 62l24-26h100l24 26" fill="none" stroke="#4FB4E8" stroke-width="1.5"/>'+
+     '<circle cx="76" cy="128" r="12" fill="none" stroke="#FFA02E" stroke-width="2"/>'+
+     '<circle cx="164" cy="128" r="12" fill="none" stroke="#FFA02E" stroke-width="2"/>'+
+     '<path d="M70 80h100M70 94h64" stroke="#2E9FDF" stroke-width="1.5"/>',
+   cooler: bg+'<rect x="54" y="52" width="132" height="72" fill="#0A1219" stroke="#7FD4FA"/>'+
+     '<rect x="54" y="40" width="132" height="16" fill="#0E1A24" stroke="#4FB4E8"/>'+
+     '<path d="M96 40v-8h48v8" fill="none" stroke="#FFA02E" stroke-width="2"/>'+
+     '<text x="120" y="98" text-anchor="middle" fill="#4FB4E8" font-size="12" font-family="monospace">-14°F</text>',
+   cards: bg+'<rect x="40" y="40" width="110" height="76" fill="#0A1219" stroke="#4FB4E8"/>'+
+     '<rect x="60" y="52" width="110" height="76" fill="#0C161F" stroke="#7FD4FA"/>'+
+     '<path d="M76 76h72M76 92h48" stroke="#4FB4E8" stroke-width="2"/>'+
+     '<circle cx="176" cy="46" r="10" fill="none" stroke="#FFA02E" stroke-width="2"/>',
+   field: bg+'<path d="M0 108h240" stroke="#2E9FDF"/><path d="M0 130h240" stroke="#1A3A50"/>'+
+     '<rect x="88" y="66" width="64" height="42" fill="none" stroke="#7FD4FA"/>'+
+     '<circle cx="120" cy="108" r="26" fill="none" stroke="#4FB4E8" stroke-dasharray="3 5"/>'+
+     '<circle cx="52" cy="96" r="5" fill="#FFA02E"/><circle cx="188" cy="100" r="5" fill="#FFA02E"/>',
+   sky: bg+'<path d="M0 118h240" stroke="#2E9FDF"/>'+
+     '<path d="M40 76a20 20 0 0 1 4-40 26 26 0 0 1 50 8 18 18 0 0 1 2 35z" fill="none" stroke="#7FD4FA"/>'+
+     '<path d="M140 62a16 16 0 0 1 3-32 21 21 0 0 1 40 6 15 15 0 0 1 2 28z" fill="none" stroke="#4FB4E8"/>'+
+     '<path d="M60 92l-6 14M84 92l-6 14M108 92l-6 14" stroke="#FFA02E" stroke-width="2"/>'
+  };
+  return s+(G[kind]||G.panel)+'</svg>';
+}
+let PHOTOS=[
+ {k:'panel',t:'Freezer display, E4',cap:'A chest freezer control panel showing error code E4 in amber, with one status light lit and two dark. Taken close, slightly underexposed.',
+  when:'THU 14 AUG · 8:41 PM',where:'Kitchen, Village East',use:'Draft reply to Ray Whitfield'},
+ {k:'whiteboard',t:'Saturday batch plan',cap:'A whiteboard with four lines of handwriting and a checkmark next to the last item. Flavour names and quantities.',
+  when:'FRI 15 AUG · 10:12 AM',where:'Kitchen, Village East',use:'Nothing yet'},
+ {k:'receipt',t:'Northside invoice',cap:'A printed service invoice, total two hundred forty-eight dollars, with a line item for a diagnostic call.',
+  when:'THU 14 AUG · 9:03 PM',where:'Kitchen, Village East',use:'Attached to a memory about the freezer'},
+ {k:'cart',t:'Cart at Mudd Field',cap:'The ice cream cart set up on grass with the canopy raised. Two people in frame, both facing away.',
+  when:'SAT 9 AUG · 12:20 PM',where:'Mudd Field',use:'Campus Creamery photos'},
+ {k:'cooler',t:'Backup cooler, minus fourteen',cap:'A chest cooler with the lid open and a thermometer reading minus fourteen Fahrenheit.',
+  when:'SAT 9 AUG · 11:02 AM',where:'Mudd Field',use:'Nothing yet'},
+ {k:'cards',t:'Bio 2960 flashcards',cap:'A stack of index cards on a library desk, top card face-up with two lines of writing.',
+  when:'WED 13 AUG · 3:44 PM',where:'Olin Library',use:'Bio 2960 study set'},
+ {k:'field',t:'Turf field, Thursday',cap:'A lit turf field at dusk with two players near the far goal. Sky still blue at the top of the frame.',
+  when:'THU 14 AUG · 7:18 PM',where:'Francis Field',use:'Nothing yet'},
+ {k:'sky',t:'Storm coming in',cap:'Heavy cloud over the Delmar Loop with visible rain shafts on the left. Taken from a window.',
+  when:'TUE 12 AUG · 4:55 PM',where:'Village East, 4th floor',use:'Nothing yet'}
+];
+let phIdx=0;
+function renderPhotos(){
+  $('#phcount').textContent=PHOTOS.length+' PHOTOS · ALL ON THIS DEVICE';
+  $('#phlist').innerHTML=PHOTOS.map((p,i)=>
+   '<div class="pnl tgt" data-photo="'+i+'" role="button" tabindex="0" style="display:block;padding:8px;cursor:pointer">'+
+   photoSVG(p.k,268,178)+
+   '<div class="cd" style="font-size:12px;letter-spacing:.11em;color:var(--core);margin-top:9px">'+p.t+'</div>'+
+   '<div class="mo st" style="font-size:9.5px;margin-top:4px">'+p.when+'</div></div>').join('');
+  addLocks($('#phlist'));
+}
+function openPhoto(i){
+  phIdx=i;
+  const p=PHOTOS[i];
+  $('#phgrid').style.display='none'; $('#phdetail').style.display='block';
+  $('#phdtitle').textContent=p.t;
+  $('#phdimg').innerHTML=photoSVG(p.k,600,400);
+  $('#phdcap').textContent=p.cap;
+  $('#phdwhen').textContent=p.when; $('#phdwhere').textContent=p.where; $('#phduse').textContent=p.use;
+  $('#phdactions').style.display='flex'; $('#phdconfirm').style.display='none';
+  if(cur!=='photos') go('photos');
+  addLocks($('#phdetail'));
+}
+$('#phlist').addEventListener('click',e=>{
+  const c=e.target.closest('[data-photo]'); if(c) openPhoto(+c.dataset.photo);
+});
+$('#phback').addEventListener('click',()=>{ $('#phdetail').style.display='none'; $('#phgrid').style.display='block'; renderPhotos(); });
+$('#phforget').addEventListener('click',()=>{ $('#phdactions').style.display='none'; $('#phdconfirm').style.display='block'; });
+$('#phforgetno').addEventListener('click',()=>{ $('#phdactions').style.display='flex'; $('#phdconfirm').style.display='none'; });
+$('#phforget2').addEventListener('click',()=>{
+  PHOTOS.splice(phIdx,1);
+  $('#phdetail').style.display='none'; $('#phgrid').style.display='block'; renderPhotos();
+});
+$('#phkeep').addEventListener('click',()=>{
+  PHOTOS[phIdx].use='Kept · Atlas will not clear it';
+  $('#phduse').textContent=PHOTOS[phIdx].use;
+});
+onEnter.photos=function(){
+  if($('#phdetail').style.display==='block') return;
+  $('#phgrid').style.display='block'; $('#phdetail').style.display='none'; renderPhotos();
+};
+
+/* ═══ 27 MEMORY — the ring is the age ════════════════════════════════ */
+let MEMS=[
+ {t:'You walk to campus — about 14 minutes from Village East',d:2,src:'You told me on 14 August',use:'Used 3 times'},
+ {t:'You are lactose-sensitive after about 9 PM',d:6,src:'You told me on 10 August',use:'Used once'},
+ {t:'Chem 261 lab is in Louderman 458, Mondays at 2:30',d:11,src:'Read from your calendar',use:'Used 8 times'},
+ {t:'Campus Creamery sells at Mudd Field on Saturdays',d:21,src:'You told me on 26 July',use:'Used 14 times'},
+ {t:'Carlos Ontiveros plays lacrosse with you and helps at the cart',d:35,src:'Worked out from your texts',use:'Used 6 times'},
+ {t:'Mom’s birthday is 4 November',d:124,src:'You told me on 14 April',use:'Not used yet'}
+];
+function plural(n,word){return n+' '+word+(n===1?'':'S');}
+function ageStr(d){
+  if(d===0) return 'RECORDED TODAY';
+  if(d<7) return 'RECORDED '+plural(d,'DAY')+' AGO';
+  if(d<56) return 'RECORDED '+plural(Math.round(d/7),'WEEK')+' AGO';
+  return 'RECORDED '+plural(Math.round(d/30),'MONTH')+' AGO';
+}
+function renderMem(){
+  $('#memcount').textContent=MEMS.length+' THINGS · YOU CAN DELETE ANY OF THEM';
+  $('#memlist').innerHTML=MEMS.map((m,i)=>{
+    /* compressed so a two-day-old memory and a four-month-old one look different */
+    const fresh=Math.max(0.05,1-Math.pow(m.d/180,0.5));
+    return '<div class="pnl" style="padding:16px 18px" data-mem="'+i+'">'+
+    '<div style="display:flex;gap:16px;align-items:flex-start">'+
+      '<svg width="54" height="54" viewBox="0 0 54 54" style="flex:none">'+
+       ticks(27,27,20,24,24,'rgba(46,159,223,.3)',1,6,3)+
+       ring(27,27,17,C.track,2)+arc(27,27,17,fresh,fresh>.7?C.core:(fresh>.4?C.holo:C.steel),3)+
+      '</svg>'+
+      '<div style="flex:1">'+
+        '<div class="pr" style="font-size:14.5px;color:var(--core);line-height:1.45">'+m.t+'</div>'+
+        '<div class="mo st" style="font-size:10px;margin-top:8px;letter-spacing:.14em">'+ageStr(m.d)+' · '+m.use.toUpperCase()+'</div>'+
+        '<div style="margin-top:9px"><span class="prov recalled"><span class="t">Recalled</span><span class="n">· '+m.src+'</span></span></div>'+
+      '</div></div>'+
+    '<div class="memact" style="display:flex;gap:9px;margin-top:13px">'+
+      '<span class="btn gh sm tgt" data-memforget="'+i+'" role="button" tabindex="0">FORGET THIS</span>'+
+      '<span class="btn gh sm tgt" data-memkeep="'+i+'" role="button" tabindex="0">IT IS STILL TRUE</span></div>'+
+    '<div class="memconf pnl hot" style="display:none;padding:12px 14px;margin-top:13px">'+
+      '<div class="cd am" style="font-size:12px;letter-spacing:.18em">FORGET THIS FOR GOOD?</div>'+
+      '<div class="mo st" style="font-size:10.5px;margin-top:6px">Atlas will stop using it and will not ask again.</div>'+
+      '<div style="display:flex;gap:9px;margin-top:11px">'+
+        '<span class="btn arm sm tgt" data-memdo="'+i+'" role="button" tabindex="0">YES, FORGET IT</span>'+
+        '<span class="btn gh sm tgt" data-memno="'+i+'" role="button" tabindex="0">KEEP IT</span></div></div>'+
+    '</div>';
+  }).join('');
+  addLocks($('#memlist'));
+}
+$('#memlist').addEventListener('click',e=>{
+  const f=e.target.closest('[data-memforget]');
+  if(f){ const c=f.closest('[data-mem]');
+    c.querySelector('.memact').style.display='none';
+    c.querySelector('.memconf').style.display='block'; return; }
+  const no=e.target.closest('[data-memno]');
+  if(no){ const c=no.closest('[data-mem]');
+    c.querySelector('.memact').style.display='flex';
+    c.querySelector('.memconf').style.display='none'; return; }
+  const d=e.target.closest('[data-memdo]');
+  if(d){ MEMS.splice(+d.dataset.memdo,1); renderMem(); return; }
+  const k=e.target.closest('[data-memkeep]');
+  if(k){ const i=+k.dataset.memkeep; MEMS[i].d=0; MEMS[i].src='You confirmed it just now'; renderMem(); }
+});
+onEnter.memory=renderMem;
+
+/* ═══ 28 JOBS ════════════════════════════════════════════════════════ */
+let jobProg=0.62, jobTimer=null;
+function renderJobs(){
+  const jr=(pct,state)=>{
+    const col = state==='run'?C.armed:(state==='done'?C.core:C.steel);
+    return '<svg width="86" height="86" viewBox="0 0 86 86" style="flex:none">'+
+      ticks(43,43,33,39,36,'rgba(46,159,223,.3)',1,6,4)+
+      ring(43,43,29,C.track,2.5)+
+      (state==='queue' ? ring(43,43,29,C.steel2,2.5,'stroke-dasharray="4 8"') : arc(43,43,29,pct,col,3.5))+
+      '<text x="43" y="48" text-anchor="middle" fill="'+col+'" font-size="14" font-family="monospace">'+
+      (state==='queue'?'—':Math.round(pct*100)+'%')+'</text></svg>';
+  };
+  $('#joblist').innerHTML=
+  '<div class="pnl hot" style="padding:18px 20px;display:flex;gap:20px;align-items:center">'+
+    jr(jobProg,'run')+
+    '<div style="flex:1">'+
+      '<div style="display:flex;align-items:center;gap:12px">'+
+      '<span class="cd am" style="font-size:11px;letter-spacing:.24em">RUNNING</span>'+
+      '<span class="dot pulse" style="color:var(--armed)"></span></div>'+
+      '<div class="cd" style="font-size:19px;letter-spacing:.12em;color:var(--core);margin-top:8px">Meta-analysis of spaced repetition</div>'+
+      '<div class="mo st" style="font-size:11px;margin-top:7px">'+Math.round(jobProg*14)+' OF 14 STUDIES READ · STARTED 1:31 PM · ABOUT '+
+        Math.max(1,Math.round((1-jobProg)*11))+' MIN LEFT</div>'+
+      '<div class="pr" style="font-size:13px;color:var(--holo);margin-top:9px">You asked whether the spacing gaps in the Bio 2960 deck are actually the right ones.</div>'+
+    '</div>'+
+    '<span class="btn gh sm tgt" data-go="research" role="button" tabindex="0">WATCH IT</span>'+
+  '</div>'+
+  '<div class="pnl" style="padding:18px 20px;display:flex;gap:20px;align-items:center">'+
+    jr(0,'queue')+
+    '<div style="flex:1">'+
+      '<span class="cd st" style="font-size:11px;letter-spacing:.24em">QUEUED</span>'+
+      '<div class="cd" style="font-size:19px;letter-spacing:.12em;color:var(--holo);margin-top:8px">Compare POS systems for the creamery</div>'+
+      '<div class="mo st" style="font-size:11px;margin-top:7px">WAITING FOR THE JOB ABOVE · ATLAS RUNS ONE AT A TIME SO THE VOICE LOOP STAYS FAST</div>'+
+    '</div>'+
+    '<span class="btn gh sm tgt" data-job="jump" role="button" tabindex="0">RUN IT FIRST</span>'+
+  '</div>'+
+  '<div class="pnl" style="padding:18px 20px">'+
+    '<div style="display:flex;gap:20px;align-items:center">'+
+      jr(1,'done')+
+      '<div style="flex:1">'+
+        '<span class="cd" style="font-size:11px;letter-spacing:.24em;color:var(--core)">FINISHED · 12:48 PM</span>'+
+        '<div class="cd" style="font-size:19px;letter-spacing:.12em;color:var(--core);margin-top:8px">August cream pricing vs last year</div>'+
+        '<div style="margin-top:9px"><span class="prov sourced"><span class="t">Sourced</span><span class="n">· 6</span></span></div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="pnl flat" style="padding:14px 16px;margin-top:14px">'+
+      '<div class="pr" style="font-size:14.5px;color:var(--core)">Cream is up 11% on last August, and Blue Line raises again on the 24th. '+
+      'At 46 scoops a Saturday that is about $6.40 a week. Ordering before the 22nd locks $4.02 a quart through September.</div>'+
+      '<div style="display:flex;gap:10px;margin-top:14px">'+
+        '<span class="btn sm tgt" data-go="thread" role="button" tabindex="0">ASK ABOUT IT</span>'+
+        '<span class="btn gh sm tgt" data-go="inbox" role="button" tabindex="0">SEE THE BLUE LINE EMAIL</span></div>'+
+    '</div>'+
+  '</div>';
+  addLocks($('#joblist'));
+}
+$('#joblist').addEventListener('click',e=>{
+  if(e.target.closest('[data-job]')) go('research');
+});
+onEnter.jobs=function(){
+  renderJobs();
+  if(jobTimer) clearInterval(jobTimer);
+  jobTimer=setInterval(()=>{
+    jobProg=Math.min(0.99,jobProg+0.004);
+    if(cur==='jobs') renderJobs(); else { clearInterval(jobTimer); jobTimer=null; }
+  }, 1400);
+};
+onLeave.jobs=function(){ if(jobTimer){clearInterval(jobTimer);jobTimer=null;} };
+
+/* ═══ 29 MUTED ═══════════════════════════════════════════════════════ */
+let micLive=true;
+function renderMuteRing(){
+  const cx=150,cy=150;
+  let h=ticks(cx,cy,128,138,60,'rgba(255,160,46,.3)',1,5,6);
+  h+=ring(cx,cy,116,'rgba(255,160,46,.22)',1.5);
+  h+=segRing(cx,cy,96,6,30,'rgba(255,160,46,.45)',2.5);
+  h+=ring(cx,cy,74,'rgba(255,160,46,.2)',1);
+  h+='<path d="M150 118v26M140 128v8M160 128v8" stroke="'+C.armed+'" stroke-width="3" stroke-linecap="round" opacity=".55"/>';
+  h+='<path d="M132 146a18 18 0 0 0 36 0" fill="none" stroke="'+C.armed+'" stroke-width="2.5" stroke-linecap="round" opacity=".55"/>';
+  h+='<path d="M150 164v10" stroke="'+C.armed+'" stroke-width="3" stroke-linecap="round" opacity=".55"/>';
+  h+='<line x1="106" y1="106" x2="194" y2="194" stroke="'+C.armed+'" stroke-width="4" stroke-linecap="round"/>';
+  $('#mutering').innerHTML=h;
+}
+onEnter.muted=function(){ renderMuteRing(); setMic(false); };
+function setMic(live){
+  micLive=live;
+  $('#micdot').style.color = live?'var(--armed)':'var(--steel-2)';
+  $('#micdot').classList.toggle('pulse', !live);
+  $('#mictxt').textContent = live?'MIC LIVE':'MIC OFF';
+  $('#mictxt').style.color = live?'var(--holo)':'var(--armed)';
+}
+$('#micstate').addEventListener('click',()=>{
+  if(micLive){ setMic(false); go('muted'); } else { setMic(true); go('idle'); }
+});
+$('#unmute').addEventListener('click',()=>{ setMic(true); go('idle'); });
+setMic(true);
+
+/* ═══ 30 OFFLINE ═════════════════════════════════════════════════════ */
+onEnter.offline=function(){
+  const cx=150,cy=150;
+  let h=ticks(cx,cy,128,138,48,'rgba(255,160,46,.28)',1,6,6);
+  h+=ring(cx,cy,116,'rgba(255,160,46,.2)',1.5);
+  h+='<g class="spinr" style="transform-origin:150px 150px">'+segRing(cx,cy,96,3,150,'rgba(255,160,46,.5)',2.5)+'</g>';
+  h+='<path d="M112 96a54 54 0 0 1 76 0" fill="none" stroke="rgba(255,160,46,.3)" stroke-width="3" stroke-linecap="round"/>';
+  h+='<path d="M126 110a34 34 0 0 1 48 0" fill="none" stroke="rgba(255,160,46,.45)" stroke-width="3" stroke-linecap="round"/>';
+  h+='<path d="M140 124a15 15 0 0 1 20 0" fill="none" stroke="'+C.armed+'" stroke-width="3" stroke-linecap="round"/>';
+  h+='<circle cx="150" cy="136" r="4" fill="'+C.armed+'"/>';
+  h+='<line x1="114" y1="138" x2="186" y2="78" stroke="'+C.armed+'" stroke-width="3.5" stroke-linecap="round"/>';
+  $('#offring').innerHTML=h;
+  $('#offretry').textContent='RETRY NOW';
+};
+$('#offretry').addEventListener('click',e=>{
+  const b=e.currentTarget;
+  b.textContent='CHECKING…';
+  later(()=>{
+    b.textContent='BACK ONLINE';
+    $('#rbnet').textContent='LINK · WPA2 · 84%';
+    $('#rbnet').style.color='var(--holo)';
+    CAPS[4].v=1; CAPS[5].v=1; if(cur==='health') renderCaps();
+    later(()=>go('idle'),900);
+  },1600);
+});
+
+/* ═══ 31 HEALTH ══════════════════════════════════════════════════════ */
+const CAPS=[
+ {n:'Speech in',k:'On-device transcription',v:1,d:'Turning what you say into text, without sending audio anywhere. Runs on the Pi itself, so it keeps working when the internet does not.'},
+ {n:'Speech out',k:'Voice "Fen"',v:1,d:'Reading answers aloud. Cached on the device — 1.2 GB of voice model.'},
+ {n:'Calendar',k:'3 calendars',v:1,d:'WashU, Campus Creamery and the lacrosse club feed. Two are live; the lacrosse ICS is a snapshot from two hours ago.'},
+ {n:'Mail',k:'rukinjames@gmail.com',v:1,d:'Reading and sending. Atlas never sends without reading the message back to you first.'},
+ {n:'Weather',k:'NWS St. Louis',v:0,d:'Down with the network. Atlas has a forecast from six minutes before the link dropped and will say so rather than pretend it is current.'},
+ {n:'Web search',k:'Research and sources',v:0,d:'Down with the network. Any question needing a source will come back "No source found" until the link is up.'},
+ {n:'Camera',k:'Privacy shutter closed',v:1,d:'Nothing is recorded unless you open the camera. Photos stay on this device until you send one.'},
+ {n:'Memory',k:'22 entries',v:1,d:'Everything Atlas has learned about you, with the date it learned it. You can delete any entry on the Memory screen.'}
+];
+function renderCaps(){
+  $('#caprow').innerHTML=CAPS.map((c,i)=>{
+    const ok=c.v>0, col=ok?C.core:C.armed;
+    return '<div class="pnl'+(ok?'':' hot')+' tgt" data-cap="'+i+'" role="button" tabindex="0" '+
+     'style="display:block;flex:1;padding:13px 11px;text-align:center;cursor:pointer">'+
+     '<svg width="66" height="66" viewBox="0 0 66 66" style="margin:0 auto;display:block">'+
+      ticks(33,33,25,29,24,ok?'rgba(46,159,223,.35)':'rgba(255,160,46,.35)',1,6,4)+
+      ring(33,33,21,C.track,2.5)+
+      arc(33,33,21,ok?1:0.08,col,3.5)+
+     '</svg>'+
+     '<div class="cd" style="font-size:12px;letter-spacing:.12em;color:'+(ok?'var(--core)':'var(--armed)')+';margin-top:9px">'+c.n+'</div>'+
+     '<div class="mo st" style="font-size:9px;margin-top:5px;line-height:1.4">'+c.k.toUpperCase()+'</div>'+
+     '<div class="mo" style="font-size:9px;letter-spacing:.18em;margin-top:7px;color:'+(ok?'var(--core)':'var(--armed)')+'">'+
+      (ok?'LIVE':'DOWN')+'</div></div>';
+  }).join('');
+  addLocks($('#caprow'));
+}
+$('#caprow').addEventListener('click',e=>{
+  const c=e.target.closest('[data-cap]'); if(!c)return;
+  const cap=CAPS[+c.dataset.cap];
+  if(cap.v===0){ go('offline'); return; }
+  $('#capdname').textContent=cap.n.toUpperCase()+' · '+cap.k.toUpperCase();
+  $('#capdtxt').textContent=cap.d;
+});
+onEnter.health=renderCaps;
+
+/* ═══ boot the thing ═════════════════════════════════════════════════ */
+addLocks();
+renderTimers(); renderAlarms(); renderInbox(); renderPhotos(); renderMem();
+/* deep link: #timers etc. jumps straight to a screen; no hash boots normally */
+const hash=location.hash.replace('#','');
+go(META[hash] ? hash : 'boot');
+addEventListener('hashchange',()=>{
+  const h=location.hash.replace('#','');
+  if(META[h]&&h!==cur) go(h);
+});
+</script>
+
